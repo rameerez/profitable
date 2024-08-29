@@ -1,14 +1,14 @@
-# 💸 `profitable` - Calculate your app's MRR, churn & valuation
+# 💸 `profitable` - Calculate your MRR, churn & valuation
 
 [![Gem Version](https://badge.fury.io/rb/profitable.svg)](https://badge.fury.io/rb/profitable)
 
-Calculate the MRR, ARR, churn, total revenue & estimated valuation of your `pay`-powered Rails SaaS app.
+Calculate the MRR, ARR, churn, total revenue & estimated valuation of your `pay`-powered Rails SaaS app, and display them in a simple dashboard.
 
 ## Why
 
-[`pay`](https://github.com/pay-rails/pay) is the easiest way of handling payments in your Rails application. Think of `profitable` as a complement to `pay` that calculates business metrics like MRR, ARR, churn, total revenue & estimated valuation directly within your Rails application.
+[`pay`](https://github.com/pay-rails/pay) is the easiest way of handling payments in your Rails application. Think of `profitable` as the complement to `pay` that calculates business metrics like MRR, ARR, churn, total revenue & estimated valuation directly within your Rails application.
 
-Usually, you would look into your Stripe Dashboard or query the Stripe API to know your MRR / ARR / churn, sure, but if you're using `pay`, you already have that data available and auto synced to your own database. So we can leverage it to make handy, composable ActiveRecord queries that you can reuse in any part of your Rails app (dashboards, internal pages, status messages, etc.)
+Usually, you would look into your Stripe Dashboard or query the Stripe API to know your MRR / ARR / churn – but if you're using `pay`, you already have that data available and auto synced to your own database. So we can leverage it to make handy, composable ActiveRecord queries that you can reuse in any part of your Rails app (dashboards, internal pages, reports, status messages, etc.)
 
 Think doing something like: `"Your app is currently at $#{Profitable.mrr} MRR – Estimated to be worth $#{Profitable.valuation_estimate("3x")} at a 3x valuation"`
 
