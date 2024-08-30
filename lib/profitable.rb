@@ -121,6 +121,9 @@ module Profitable
 
     def churned_subscriptions(period = DEFAULT_PERIOD)
       Pay::Subscription
+        .includes(:customer)
+        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
+        .joins(:customer)
         .where(status: ['canceled', 'ended'])
         .where(ends_at: period.ago..Time.current)
     end
@@ -182,8 +185,6 @@ module Profitable
                    .count
     end
 
-  end
-
     def calculate_average_revenue_per_customer
       return 0 if total_customers.zero?
       (all_time_revenue.to_f / total_customers).round
@@ -220,4 +221,5 @@ module Profitable
         end
     end
 
+  end
 end
