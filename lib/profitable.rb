@@ -2,8 +2,11 @@
 
 require_relative "profitable/version"
 require_relative "profitable/error"
+require_relative "profitable/engine"
+
 require_relative "profitable/mrr_calculator"
 require_relative "profitable/numeric_result"
+
 require "pay"
 require "active_support/core_ext/numeric/conversions"
 require "action_view"
