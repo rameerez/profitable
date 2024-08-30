@@ -1,4 +1,4 @@
-# 💸 `profitable` - SaaS business metrics for your Rails app
+# 💸 `profitable` - SaaS metrics for your Rails app
 
 [![Gem Version](https://badge.fury.io/rb/profitable.svg)](https://badge.fury.io/rb/profitable)
 
