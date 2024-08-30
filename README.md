@@ -23,9 +23,11 @@ gem 'profitable'
 
 Then run `bundle install`.
 
+Provided you have a valid [`pay`](https://github.com/pay-rails/pay) installation (`Pay::Customer`, `Pay::Subscription`, `Pay::Charge`, etc.) everything is already set up and you can just start using [`Profitable` methods](#main-profitable-methods) right away.
+
 ## Mount the `/profitable` dashboard
 
-`profitable` provides a simple dashboard to see your main business metrics.
+`profitable` also provides a simple dashboard to see your main business metrics.
 
 In your `config/routes.rb` file, mount the `profitable` engine:
 ```ruby
