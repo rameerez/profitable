@@ -15,6 +15,8 @@ module Profitable
         "#{number_with_precision(self, precision: precision)}%"
       when :integer
         number_with_delimiter(self)
+      when :string
+        self.to_s
       else
         to_s
       end

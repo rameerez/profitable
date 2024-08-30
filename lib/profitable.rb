@@ -11,6 +11,7 @@ require "action_view"
 module Profitable
   class << self
     DEFAULT_PERIOD = 30.days
+    MRR_MILESTONES = [100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]
 
     def mrr
       NumericResult.new(MrrCalculator.calculate)
@@ -47,8 +48,8 @@ module Profitable
     def new_subscribers(in_the_last: DEFAULT_PERIOD)
       NumericResult.new(
         Pay::Subscription.active
-          .where(created_at: in_the_last.ago..Time.current)
-          .distinct.count('customer_id'),
+          .where(pay_subscriptions: { created_at: in_the_last.ago..Time.current })
+          .distinct.count('pay_customers.id'),
         :integer
       )
     end
@@ -71,6 +72,24 @@ module Profitable
 
     def lifetime_value
       NumericResult.new(calculate_lifetime_value)
+    end
+
+    def mrr_growth_rate(in_the_last: DEFAULT_PERIOD)
+      NumericResult.new(calculate_mrr_growth_rate(in_the_last), :percentage)
+    end
+
+    def time_to_next_mrr_milestone
+      current_mrr = mrr.to_i
+      next_milestone = MRR_MILESTONES.find { |milestone| milestone > current_mrr }
+      return "Congratulations! You've reached the highest milestone." unless next_milestone
+
+      growth_rate = calculate_mrr_growth_rate
+      return "Unable to calculate. Need more data or positive growth." if growth_rate <= 0
+
+      months_to_milestone = (Math.log(next_milestone.to_f / current_mrr) / Math.log(1 + growth_rate)).ceil
+      days_to_milestone = months_to_milestone * 30
+
+      NumericResult.new("#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR", :string)
     end
 
     private
@@ -114,8 +133,8 @@ module Profitable
 
     def calculate_new_mrr(period)
       new_subscriptions = Pay::Subscription
-        .where(created_at: period.ago..Time.current)
         .active
+        .where(pay_subscriptions: { created_at: period.ago..Time.current })
         .where.not(status: ['trialing', 'paused'])
         .includes(:customer)
         .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
@@ -138,5 +157,28 @@ module Profitable
       (average_revenue_per_customer.to_f / churn_rate).round
     end
 
+    def calculate_mrr_growth_rate(period)
+      end_date = Time.current
+      start_date = end_date - period
+
+      start_mrr = calculate_mrr_at(start_date)
+      end_mrr = calculate_mrr_at(end_date)
+
+      return 0 if start_mrr == 0
+      ((end_mrr.to_f - start_mrr) / start_mrr * 100).round(2)
+    end
+
+    def calculate_mrr_at(date)
+      Pay::Subscription
+        .active
+        .where('pay_subscriptions.created_at <= ?', date)
+        .where.not(status: ['trialing', 'paused'])
+        .includes(:customer)
+        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
+        .joins(:customer)
+        .sum do |subscription|
+          MrrCalculator.process_subscription(subscription)
+        end
+    end
   end
 end

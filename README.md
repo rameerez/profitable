@@ -48,6 +48,14 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 - `Profitable.churn(in_the_last: 30.days)`: Churn rate as a percentage
 - `Profitable.estimated_valuation(multiplier = "3x")`: Estimated valuation based on ARR
 
+### Growth metrics
+
+- `Profitable.mrr_growth_rate(in_the_last: 30.days)`: Calculates the MRR growth rate over the specified period
+
+### Milestone metrics
+
+- `Profitable.time_to_next_mrr_milestone`: Estimates the time to reach the next MRR milestone based on the current growth rate
+
 ### Usage examples
 
 ```ruby
@@ -63,10 +71,12 @@ Profitable.churn(in_the_last: 3.months).to_readable # => "12%"
 # Get the estimated valuation at 5x ARR
 Profitable.estimated_valuation("5x").to_readable # => "$500,000"
 
-# Get the average revenue per customer
-Profitable.average_revenue_per_customer.to_readable # => "$100.00"
-```
+# Get the time to next MRR milestone
+Profitable.time_to_next_mrr_milestone.to_readable # => "26 days left to $10,000 MRR"
 
+# Get the MRR growth rate for the last 30 days
+Profitable.mrr_growth_rate.to_readable(2) # => "5.75%"
+```
 
 All time-based methods default to a 30-day period if no time range is specified.
 
@@ -83,6 +93,11 @@ For more precise calculations, you can access the raw numeric value:
 # Returns the raw MRR integer value in cents
 Profitable.mrr # => 123456
 ```
+
+### Notes on specific metrics
+
+- `mrr_growth_rate`: This calculation compares the MRR at the start and end of the specified period. It assumes a linear growth rate over the period, which may not reflect short-term fluctuations. For more accurate results, consider using shorter periods or implementing a more sophisticated growth calculation method if needed.
+- `time_to_next_mrr_milestone`: This estimation is based on the current MRR and the recent growth rate. It assumes a constant growth rate, which may not reflect real-world conditions. The calculation may be inaccurate for very new businesses or those with irregular growth patterns.
 
 ## Mount the `/profitable` dashboard
 
