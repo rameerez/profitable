@@ -56,19 +56,22 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 - `Profitable.churned_mrr(in_the_last: 30.days)`: MRR lost due to churn in the specified period
 - `Profitable.average_revenue_per_customer`: Average revenue per customer (ARPC)
 - `Profitable.lifetime_value`: Estimated customer lifetime value (LTV)
+- `Profitable.estimated_valuation(multiplier = "3x")`: Estimated company valuation based on ARR
 
 ### Customer metrics
 
-- `Profitable.total_customers`: Total number of customers
-- `Profitable.total_subscribers`: Total number of active subscribers
-- `Profitable.new_customers(in_the_last: 30.days)`: Number of new customers (both subscribers and non-subscribers) added in the specified period
+- `Profitable.total_customers`: Total number of customers who have ever made a purchase or had a subscription (current and past)
+- `Profitable.total_subscribers`: Total number of customers who have ever had a subscription (active or not)
+- `Profitable.active_subscribers`: Number of customers with currently active subscriptions
+- `Profitable.new_customers(in_the_last: 30.days)`: Number of new customers added in the specified period
 - `Profitable.new_subscribers(in_the_last: 30.days)`: Number of new subscribers added in the specified period
 - `Profitable.churned_customers(in_the_last: 30.days)`: Number of customers who churned in the specified period
 
 ### Other metrics
 
-- `Profitable.churn(in_the_last: 30.days)`: Churn rate as a percentage
-- `Profitable.estimated_valuation(multiplier = "3x")`: Estimated valuation based on ARR
+- `Profitable.churn(in_the_last: 30.days)`: Churn rate for the specified period
+- `Profitable.mrr_growth_rate(in_the_last: 30.days)`: MRR growth rate for the specified period
+- `Profitable.time_to_next_mrr_milestone`: Estimated time to reach the next MRR milestone
 
 ### Growth metrics
 
@@ -149,6 +152,7 @@ To install this gem onto your local machine, run `bundle exec rake install`.
 - [ ] Add active customers (not just total customers)
 - [ ] Add revenue last month to dashboard
 - [ ] Add % of change over last period
+- [ ] Total revenue vs recurring revenue (both last month and % of recurring vs total)
 - [ ] Support other currencies other than USD
 - [ ] Support for multiple plans (churn by plan, MRR by plan, etc)
 - [ ] Make sure other payment processors other than Stripe work as intended

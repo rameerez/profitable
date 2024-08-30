@@ -39,11 +39,15 @@ module Profitable
     end
 
     def total_customers
-      NumericResult.new(Pay::Customer.count, :integer)
+      NumericResult.new(calculate_total_customers, :integer)
     end
 
     def total_subscribers
-      NumericResult.new(Pay::Subscription.active.distinct.count('customer_id'), :integer)
+      NumericResult.new(calculate_total_subscribers, :integer)
+    end
+
+    def active_subscribers
+      NumericResult.new(calculate_active_subscribers, :integer)
     end
 
     def new_customers(in_the_last: DEFAULT_PERIOD)
@@ -150,6 +154,27 @@ module Profitable
       end
     end
 
+    def calculate_total_customers
+      Pay::Customer.joins("LEFT JOIN pay_subscriptions ON pay_customers.id = pay_subscriptions.customer_id")
+                   .joins("LEFT JOIN pay_charges ON pay_customers.id = pay_charges.customer_id")
+                   .where("pay_subscriptions.id IS NOT NULL OR pay_charges.amount > 0")
+                   .distinct
+                   .count
+    end
+
+    def calculate_total_subscribers
+      Pay::Customer.joins(:subscriptions)
+                   .distinct
+                   .count
+    end
+
+    def calculate_active_subscribers
+      Pay::Customer.joins(:subscriptions)
+                   .where(pay_subscriptions: { status: 'active' })
+                   .distinct
+                   .count
+    end
+
     def calculate_average_revenue_per_customer
       return 0 if total_customers.zero?
       (all_time_revenue.to_f / total_customers).round
@@ -185,5 +210,6 @@ module Profitable
           MrrCalculator.process_subscription(subscription)
         end
     end
+
   end
 end
