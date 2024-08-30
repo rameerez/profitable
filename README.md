@@ -2,13 +2,13 @@
 
 [![Gem Version](https://badge.fury.io/rb/profitable.svg)](https://badge.fury.io/rb/profitable)
 
-Calculate the MRR, ARR, churn, total revenue & estimated valuation of your `pay`-powered Rails SaaS app, and display them in a simple dashboard.
+Calculate the MRR, ARR, churn, LTV, ARPU, total revenue & estimated valuation of your `pay`-powered Rails SaaS app, and display them in a simple dashboard.
 
 ## Why
 
-[`pay`](https://github.com/pay-rails/pay) is the easiest way of handling payments in your Rails application. Think of `profitable` as the complement to `pay` that calculates business metrics like MRR, ARR, churn, total revenue & estimated valuation directly within your Rails application.
+[`pay`](https://github.com/pay-rails/pay) is the easiest way of handling payments in your Rails application. Think of `profitable` as the complement to `pay` that calculates business SaaS metrics like MRR, ARR, churn, total revenue & estimated valuation directly within your Rails application.
 
-Usually, you would look into your Stripe Dashboard or query the Stripe API to know your MRR / ARR / churn – but if you're using `pay`, you already have that data available and auto synced to your own database. So we can leverage it to make handy, composable ActiveRecord queries that you can reuse in any part of your Rails app (dashboards, internal pages, reports, status messages, etc.)
+Usually, you would look into your Stripe Dashboard or query the Stripe API to know your MRR / ARR / churn – but when you're using `pay`, you already have that data available and auto synced to your own database. So we can leverage it to make handy, composable ActiveRecord queries that you can reuse in any part of your Rails app (dashboards, internal pages, reports, status messages, etc.)
 
 Think doing something like: `"Your app is currently at $#{Profitable.mrr} MRR – Estimated to be worth $#{Profitable.valuation_estimate("3x")} at a 3x valuation"`
 
@@ -21,7 +21,25 @@ gem 'profitable'
 
 Then run `bundle install`.
 
-## Main methods
+## Mount the `/profitable` dashboard
+
+`profitable` provides a simple dashboard to see your main business metrics.
+
+In your `config/routes.rb` file, mount the `profitable` engine:
+```ruby
+mount Profitable::Engine => '/profitable'
+```
+
+It's a good idea to make sure you're adding some sort of authentication to the `/profitable` route to avoid exposing sensitive information:
+```ruby
+authenticate :user, ->(user) { user.admin? } do
+  mount Profitable::Engine => '/profitable'
+end
+```
+
+You can now navigate to `/profitable` to see your app's business metrics like MRR, ARR, churn, etc.
+
+## Main `Profitable` methods
 
 All methods return numbers that can be converted to a nicely-formatted, human-readable string using the `to_readable` method.
 
@@ -50,17 +68,17 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 
 ### Growth metrics
 
-- `Profitable.mrr_growth_rate(in_the_last: 30.days)`: Calculates the MRR growth rate over the specified period
+- `Profitable.mrr_growth_rate(period: 30.days)`: Calculates the MRR growth rate over the specified period
 
 ### Milestone metrics
 
-- `Profitable.time_to_next_mrr_milestone`: Estimates the time to reach the next MRR milestone based on the current growth rate
+- `Profitable.time_to_next_mrr_milestone`: Estimates the time to reach the next MRR milestone
 
 ### Usage examples
 
 ```ruby
 # Get the current MRR
-Profitable.mrr.to_readable # => "$1,234.56"
+Profitable.mrr.to_readable # => "$1,234"
 
 # Get the number of new customers in the last 60 days
 Profitable.new_customers(in_the_last: 60.days).to_readable # => "42"
@@ -68,14 +86,14 @@ Profitable.new_customers(in_the_last: 60.days).to_readable # => "42"
 # Get the churn rate for the last quarter
 Profitable.churn(in_the_last: 3.months).to_readable # => "12%"
 
+# You can specify the precision of the output number (no decimals by default)
+Profitable.new_mrr(in_the_last: 24.hours).to_readable(2) # => "$123.45"
+
 # Get the estimated valuation at 5x ARR
 Profitable.estimated_valuation("5x").to_readable # => "$500,000"
 
 # Get the time to next MRR milestone
-Profitable.time_to_next_mrr_milestone.to_readable # => "26 days left to $10,000 MRR"
-
-# Get the MRR growth rate for the last 30 days
-Profitable.mrr_growth_rate.to_readable(2) # => "5.75%"
+Profitable.time_to_next_mrr_milestone.to_readable  # => "26 days left to $10,000 MRR"
 ```
 
 All time-based methods default to a 30-day period if no time range is specified.
@@ -90,7 +108,7 @@ Numeric values are returned in the same currency as your `pay` configuration. Th
 
 For more precise calculations, you can access the raw numeric value:
 ```ruby
-# Returns the raw MRR integer value in cents
+# Returns the raw MRR integer value in cents (123456 equals $1.234,56)
 Profitable.mrr # => 123456
 ```
 
@@ -128,8 +146,9 @@ To install this gem onto your local machine, run `bundle exec rake install`.
 - [ ] Support for multiple plans (churn by plan, MRR by plan, etc)
 - [ ] Make sure other payment processors other than Stripe work as intended
 - [ ] Account for subscription upgrades/downgrades within a period
-- [ ] Add a way to input monthly costs (maybe via config?) so that we can calculate a profit margin %
-- [ ] JSON
+- [ ] Add a way to input monthly costs (maybe via config file?) so that we can calculate a profit margin %
+- [ ] Allow dashboard configuration via config file
+- [ ] Return a JSON in the dashboard endpoint with main metrics (for monitoring / downstream consumption)
 
 ## Contributing
 
