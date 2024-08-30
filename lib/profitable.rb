@@ -19,7 +19,7 @@ module Profitable
     end
 
     def churn
-      NumericResult.new(calculate_churn)
+      NumericResult.new(calculate_churn, :percentage)
     end
 
     def all_time_revenue
