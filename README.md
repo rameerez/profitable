@@ -142,6 +142,9 @@ After checking out the repo, run `bin/setup` to install dependencies. Then, run 
 To install this gem onto your local machine, run `bundle exec rake install`.
 
 ## TODO
+- [ ] Add active customers (not just total customers)
+- [ ] Add revenue last month to dashboard
+- [ ] Add % of change over last period
 - [ ] Support other currencies other than USD
 - [ ] Support for multiple plans (churn by plan, MRR by plan, etc)
 - [ ] Make sure other payment processors other than Stripe work as intended
