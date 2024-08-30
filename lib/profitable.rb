@@ -34,6 +34,18 @@ module Profitable
       NumericResult.new(calculate_all_time_revenue)
     end
 
+    def revenue_in_period(in_the_last: DEFAULT_PERIOD)
+      NumericResult.new(calculate_revenue_in_period(in_the_last))
+    end
+
+    def recurring_revenue_in_period(in_the_last: DEFAULT_PERIOD)
+      NumericResult.new(calculate_recurring_revenue_in_period(in_the_last))
+    end
+
+    def recurring_revenue_percentage(in_the_last: DEFAULT_PERIOD)
+      NumericResult.new(calculate_recurring_revenue_percentage(in_the_last), :percentage)
+    end
+
     def estimated_valuation(multiplier = "3x")
       NumericResult.new(calculate_estimated_valuation(multiplier))
     end
@@ -154,6 +166,25 @@ module Profitable
       new_subscriptions.sum do |subscription|
         MrrCalculator.process_subscription(subscription)
       end
+    end
+
+    def calculate_revenue_in_period(period)
+      Pay::Charge.where(created_at: period.ago..Time.current).sum(:amount)
+    end
+
+    def calculate_recurring_revenue_in_period(period)
+      Pay::Charge.joins(:subscription)
+                 .where(created_at: period.ago..Time.current)
+                 .sum(:amount)
+    end
+
+    def calculate_recurring_revenue_percentage(period)
+      total_revenue = calculate_revenue_in_period(period)
+      recurring_revenue = calculate_recurring_revenue_in_period(period)
+
+      return 0 if total_revenue.zero?
+
+      ((recurring_revenue.to_f / total_revenue) * 100).round(2)
     end
 
     def calculate_total_customers
