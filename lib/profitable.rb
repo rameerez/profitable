@@ -41,7 +41,21 @@ module Profitable
     end
 
     def calculate_churn
-      # Implement churn calculation here
+      end_date = Date.today
+      start_date = end_date - 30.days
+
+      total_subscribers_start = Pay::Subscription
+        .where('created_at < ?', start_date)
+        .where.not(status: nil)
+        .distinct.count('customer_id')
+
+      churned_subscribers = Pay::Subscription
+        .where(status: ['canceled', 'ended'])
+        .where(ends_at: start_date..end_date)
+        .distinct.count('customer_id')
+
+      return 0 if total_subscribers_start == 0
+      ((churned_subscribers.to_f / total_subscribers_start) * 100).round(2)
     end
 
     def calculate_estimated_valuation(multiplier = "3x")
