@@ -46,7 +46,7 @@ module Profitable
 
     def calculate_estimated_valuation(multiplier = "3x")
       multiplier = multiplier.to_s.gsub('x', '').to_f
-      calculate_arr * multiplier
+      (calculate_arr * multiplier).round
     end
   end
 end
