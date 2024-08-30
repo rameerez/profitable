@@ -51,16 +51,11 @@ module Profitable
     end
 
     def new_customers(in_the_last: DEFAULT_PERIOD)
-      NumericResult.new(Pay::Customer.where(created_at: in_the_last.ago..Time.current).count, :integer)
+      NumericResult.new(calculate_new_customers(in_the_last), :integer)
     end
 
     def new_subscribers(in_the_last: DEFAULT_PERIOD)
-      NumericResult.new(
-        Pay::Subscription.active
-          .where(pay_subscriptions: { created_at: in_the_last.ago..Time.current })
-          .distinct.count('pay_customers.id'),
-        :integer
-      )
+      NumericResult.new(calculate_new_subscribers(in_the_last), :integer)
     end
 
     def churned_customers(in_the_last: DEFAULT_PERIOD)
@@ -155,17 +150,11 @@ module Profitable
     end
 
     def calculate_total_customers
-      Pay::Customer.joins("LEFT JOIN pay_subscriptions ON pay_customers.id = pay_subscriptions.customer_id")
-                   .joins("LEFT JOIN pay_charges ON pay_customers.id = pay_charges.customer_id")
-                   .where("pay_subscriptions.id IS NOT NULL OR pay_charges.amount > 0")
-                   .distinct
-                   .count
+      actual_customers.count
     end
 
     def calculate_total_subscribers
-      Pay::Customer.joins(:subscriptions)
-                   .distinct
-                   .count
+      Pay::Customer.joins(:subscriptions).distinct.count
     end
 
     def calculate_active_subscribers
@@ -174,6 +163,26 @@ module Profitable
                    .distinct
                    .count
     end
+
+    def actual_customers
+      Pay::Customer.joins("LEFT JOIN pay_subscriptions ON pay_customers.id = pay_subscriptions.customer_id")
+                   .joins("LEFT JOIN pay_charges ON pay_customers.id = pay_charges.customer_id")
+                   .where("pay_subscriptions.id IS NOT NULL OR pay_charges.amount > 0")
+                   .distinct
+    end
+
+    def calculate_new_customers(period)
+      actual_customers.where(created_at: period.ago..Time.current).count
+    end
+
+    def calculate_new_subscribers(period)
+      Pay::Customer.joins(:subscriptions)
+                   .where(created_at: period.ago..Time.current)
+                   .distinct
+                   .count
+    end
+
+  end
 
     def calculate_average_revenue_per_customer
       return 0 if total_customers.zero?
@@ -211,5 +220,4 @@ module Profitable
         end
     end
 
-  end
 end
