@@ -37,7 +37,7 @@ module Profitable
     end
 
     def calculate_arr
-      # Implement ARR calculation here
+      (mrr.to_f * 12).round
     end
 
     def calculate_churn
