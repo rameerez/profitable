@@ -13,6 +13,8 @@ module Profitable
         "$#{price_in_cents_to_string(self, precision)}"
       when :percentage
         "#{number_with_precision(self, precision: precision)}%"
+      when :integer
+        number_with_delimiter(self)
       else
         to_s
       end

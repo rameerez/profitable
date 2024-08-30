@@ -23,13 +23,60 @@ Then run `bundle install`.
 
 ## Main methods
 
-- `Profitable.mrr`: monthly recurring revenue
-- `Profitable.arr`: annual recurring revenue
-- `Profitable.churn`: churn rate
-- `Profitable.all_time_revenue`: total revenue since launch
-- `Profitable.estimated_valuation`: defaults to 3x the current ARR – you can pass custom multipliers, like `Profitable.estimated_valuation("5x")`
+All methods return numbers that can be converted to a nicely-formatted, human-readable string using the `to_readable` method.
 
-Numeric values are returned in the same currency as your `pay` configuration. For numeric values, there is a `to_readable` method that returns a human readable format.
+### Revenue metrics
+
+- `Profitable.mrr`: Monthly Recurring Revenue
+- `Profitable.arr`: Annual Recurring Revenue
+- `Profitable.all_time_revenue`: Total revenue since launch
+- `Profitable.new_mrr(in_the_last: 30.days)`: New MRR added in the specified period
+- `Profitable.churned_mrr(in_the_last: 30.days)`: MRR lost due to churn in the specified period
+
+### Customer metrics
+
+- `Profitable.total_customers`: Total number of customers
+- `Profitable.total_subscribers`: Total number of active subscribers
+- `Profitable.new_customers(in_the_last: 30.days)`: Number of new customers added in the specified period
+- `Profitable.churned_customers(in_the_last: 30.days)`: Number of customers who churned in the specified period
+
+### Other metrics
+
+- `Profitable.churn(in_the_last: 30.days)`: Churn rate as a percentage
+- `Profitable.estimated_valuation(multiplier = "3x")`: Estimated valuation based on ARR
+
+### Usage examples
+
+```ruby
+# Get the current MRR
+Profitable.mrr.to_readable # => "$1,234.56"
+
+# Get the number of new customers in the last 60 days
+Profitable.new_customers(in_the_last: 60.days).to_readable # => "42"
+
+# Get the churn rate for the last quarter
+Profitable.churn(in_the_last: 3.months).to_readable # => "12%"
+
+# Get the estimated valuation at 5x ARR
+Profitable.estimated_valuation("5x").to_readable # => "$500,000"
+```
+
+
+All time-based methods default to a 30-day period if no time range is specified.
+
+### Numeric values and readable format
+
+Numeric values are returned in the same currency as your `pay` configuration. The `to_readable` method returns a human-readable format:
+
+- Currency values are prefixed with "$" and formatted as currency.
+- Percentage values are suffixed with "%" and formatted as percentages.
+- Integer values are formatted with thousands separators but without currency symbols.
+
+For more precise calculations, you can access the raw numeric value:
+```ruby
+# Returns the raw MRR integer value in cents
+Profitable.mrr # => 123456
+```
 
 ## Mount the `/profitable` dashboard
 
@@ -54,6 +101,12 @@ You can now navigate to `/profitable` to see your app's business metrics like MR
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
 
 To install this gem onto your local machine, run `bundle exec rake install`.
+
+## TODO
+- [ ] Support other currencies other than USD
+- [ ] Support for multiple plans (churn by plan, MRR by plan, etc)
+- [ ] Make sure other payment processors other than Stripe work as intended
+- [ ] account for subscription upgrades/downgrades within a period
 
 ## Contributing
 
