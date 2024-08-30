@@ -23,11 +23,17 @@ module Profitable
     private
 
     def price_in_cents_to_string(price, precision = 2)
-      number_with_delimiter(
+      formatted_price = number_with_delimiter(
         number_with_precision(
           (price.to_f / 100), precision: precision
         )
-      ).to_s.sub(/\.?0+$/, '')
+      ).to_s
+
+      if price.zero?
+        "0"
+      else
+        formatted_price.sub(/\.?0+$/, '')
+      end
     end
   end
 end
