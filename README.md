@@ -32,7 +32,7 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 - `Profitable.all_time_revenue`: Total revenue since launch
 - `Profitable.new_mrr(in_the_last: 30.days)`: New MRR added in the specified period
 - `Profitable.churned_mrr(in_the_last: 30.days)`: MRR lost due to churn in the specified period
-- `Profitable.average_revenue_per_customer`: Average revenue per customer (ARPU)
+- `Profitable.average_revenue_per_customer`: Average revenue per customer (ARPC)
 - `Profitable.lifetime_value`: Estimated customer lifetime value (LTV)
 
 ### Customer metrics
@@ -127,7 +127,9 @@ To install this gem onto your local machine, run `bundle exec rake install`.
 - [ ] Support other currencies other than USD
 - [ ] Support for multiple plans (churn by plan, MRR by plan, etc)
 - [ ] Make sure other payment processors other than Stripe work as intended
-- [ ] account for subscription upgrades/downgrades within a period
+- [ ] Account for subscription upgrades/downgrades within a period
+- [ ] Add a way to input monthly costs (maybe via config?) so that we can calculate a profit margin %
+- [ ] JSON
 
 ## Contributing
 

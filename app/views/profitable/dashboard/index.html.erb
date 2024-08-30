@@ -1,1 +1,98 @@
-<h1>Dashboard</h1>
+<style>
+  .card-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px; /* Adjusts the space between cards */
+    padding: 16px; /* Padding around the grid */
+  }
+
+  .card {
+    background-color: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--standard-border-radius);
+    padding: 16px;
+    flex: 1 1 calc(33.333% - 32px); /* 3 columns, with gap taken into account */
+    box-sizing: border-box;
+    text-align: center;
+  }
+
+  /* Make the grid responsive */
+  @media (max-width: 900px) {
+    .card {
+      flex: 1 1 calc(50% - 32px); /* 2 columns for tablets/smaller screens */
+    }
+  }
+
+  @media (max-width: 600px) {
+    .card {
+      flex: 1 1 100%; /* 1 column for mobile devices */
+    }
+  }
+</style>
+
+<header>
+  <h1>💸 <%= Rails.application.class.module_parent_name %></h1>
+  <% if Profitable.mrr_growth_rate > 0 %>
+    <p><%= Profitable.time_to_next_mrr_milestone %></p>
+  <% end %>
+</header>
+
+<main>
+
+  <div class="card-grid">
+    <div class="card">
+      <h2><%= Profitable.total_customers.to_readable %></h2>
+      <p>total customers</p>
+    </div>
+    <div class="card">
+      <h2><%= Profitable.mrr.to_readable %></h2>
+      <p>MRR</p>
+    </div>
+    <div class="card">
+      <h2><%= Profitable.estimated_valuation.to_readable %></h2>
+      <p>Valuation at 3x ARR</p>
+    </div>
+    <div class="card">
+      <h2><%= Profitable.mrr_growth_rate.to_readable %></h2>
+      <p>MRR growth rate</p>
+    </div>
+    <div class="card">
+      <h2><%= Profitable.average_revenue_per_customer.to_readable %></h2>
+      <p>ARPC</p>
+    </div>
+    <div class="card">
+      <h2><%= Profitable.lifetime_value.to_readable %></h2>
+      <p>LTV</p>
+    </div>
+    <div class="card">
+      <h2><%= Profitable.all_time_revenue.to_readable %></h2>
+      <p>All-time revenue</p>
+    </div>
+  </div>
+
+  <% [24.hours, 7.days, 30.days].each do |period| %>
+    <% period_short = period.inspect.gsub("days", "d").gsub("hours", "h").gsub(" ", "") %>
+
+    <h2>Last <%= period.inspect %></h2>
+
+    <div class="card-grid">
+      <div class="card">
+        <h2><%= Profitable.new_customers(in_the_last: period).to_readable %></h2>
+        <p>new customers (<%= period_short %>)</p>
+      </div>
+      <div class="card">
+        <h2><%= Profitable.new_mrr(in_the_last: period).to_readable %></h2>
+        <p>new MRR (<%= period_short %>)</p>
+      </div>
+      <div class="card">
+        <h2><%= Profitable.churn(in_the_last: period).to_readable %></h2>
+        <p>churn (<%= period_short %>)</p>
+      </div>
+    </div>
+  <% end %>
+
+</main>
+
+<footer>
+  <p>💸 <code>profitable</code> gem by <a href="https://rameerez.com">@rameerez</a></p>
+</footer>

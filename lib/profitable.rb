@@ -13,6 +13,8 @@ require "action_view"
 
 module Profitable
   class << self
+    include ActionView::Helpers::NumberHelper
+
     DEFAULT_PERIOD = 30.days
     MRR_MILESTONES = [100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]
 
@@ -82,7 +84,7 @@ module Profitable
     end
 
     def time_to_next_mrr_milestone
-      current_mrr = mrr.to_i
+      current_mrr = (mrr.to_i)/100
       next_milestone = MRR_MILESTONES.find { |milestone| milestone > current_mrr }
       return "Congratulations! You've reached the highest milestone." unless next_milestone
 
@@ -92,7 +94,7 @@ module Profitable
       months_to_milestone = (Math.log(next_milestone.to_f / current_mrr) / Math.log(1 + growth_rate)).ceil
       days_to_milestone = months_to_milestone * 30
 
-      NumericResult.new("#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR", :string)
+      return "#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR (#{(Time.current + days_to_milestone.days).strftime('%b %d, %Y')})"
     end
 
     private
@@ -110,7 +112,7 @@ module Profitable
       (calculate_arr * multiplier).round
     end
 
-    def calculate_churn(period)
+    def calculate_churn(period = DEFAULT_PERIOD)
       start_date = period.ago
       total_subscribers_start = Pay::Subscription.active.where('created_at < ?', start_date).distinct.count('customer_id')
       churned = calculate_churned_customers(period)
@@ -124,17 +126,17 @@ module Profitable
         .where(ends_at: period.ago..Time.current)
     end
 
-    def calculate_churned_customers(period)
+    def calculate_churned_customers(period = DEFAULT_PERIOD)
       churned_subscriptions(period).distinct.count('customer_id')
     end
 
-    def calculate_churned_mrr(period)
+    def calculate_churned_mrr(period = DEFAULT_PERIOD)
       churned_subscriptions(period).sum do |subscription|
         MrrCalculator.process_subscription(subscription)
       end
     end
 
-    def calculate_new_mrr(period)
+    def calculate_new_mrr(period = DEFAULT_PERIOD)
       new_subscriptions = Pay::Subscription
         .active
         .where(pay_subscriptions: { created_at: period.ago..Time.current })
@@ -160,7 +162,7 @@ module Profitable
       (average_revenue_per_customer.to_f / churn_rate).round
     end
 
-    def calculate_mrr_growth_rate(period)
+    def calculate_mrr_growth_rate(period = DEFAULT_PERIOD)
       end_date = Time.current
       start_date = end_date - period
 

@@ -33,6 +33,8 @@ module Profitable
 
       if price.zero?
         "0"
+      elsif precision == 0
+        formatted_price
       else
         formatted_price.sub(/\.?0+$/, '')
       end
