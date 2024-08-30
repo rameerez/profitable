@@ -173,9 +173,10 @@ module Profitable
     end
 
     def calculate_recurring_revenue_in_period(period)
-      Pay::Charge.joins(:subscription)
-                 .where(created_at: period.ago..Time.current)
-                 .sum(:amount)
+      Pay::Charge
+        .joins('INNER JOIN pay_subscriptions ON pay_charges.subscription_id = pay_subscriptions.id')
+        .where(created_at: period.ago..Time.current)
+        .sum(:amount)
     end
 
     def calculate_recurring_revenue_percentage(period)
