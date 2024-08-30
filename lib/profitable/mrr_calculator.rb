@@ -7,15 +7,20 @@ require_relative 'processors/paddle_classic_processor'
 module Profitable
   class MrrCalculator
     def self.calculate
+      total_mrr = 0
       subscriptions = Pay::Subscription
         .active
+        .where.not(status: ['trialing', 'paused'])
         .includes(:customer)
         .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
         .joins(:customer)
 
-      subscriptions.sum do |subscription|
-        process_subscription(subscription)
+      subscriptions.find_each do |subscription|
+        mrr = process_subscription(subscription)
+        total_mrr += mrr
       end
+
+      total_mrr
     rescue => e
       Rails.logger.error("Error calculating total MRR: #{e.message}")
       raise Profitable::Error, "Failed to calculate MRR: #{e.message}"
