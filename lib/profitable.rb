@@ -78,6 +78,10 @@ module Profitable
       NumericResult.new(calculate_lifetime_value)
     end
 
+    def mrr_growth(in_the_last: DEFAULT_PERIOD)
+      NumericResult.new(calculate_mrr_growth(in_the_last))
+    end
+
     def mrr_growth_rate(in_the_last: DEFAULT_PERIOD)
       NumericResult.new(calculate_mrr_growth_rate(in_the_last), :percentage)
     end
@@ -195,6 +199,12 @@ module Profitable
       churn_rate = churn.to_f / 100
       return 0 if churn_rate.zero?
       (average_revenue_per_customer.to_f / churn_rate).round
+    end
+
+    def calculate_mrr_growth(period = DEFAULT_PERIOD)
+      new_mrr = calculate_new_mrr(period)
+      churned_mrr = calculate_churned_mrr(period)
+      new_mrr - churned_mrr
     end
 
     def calculate_mrr_growth_rate(period = DEFAULT_PERIOD)
