@@ -8,8 +8,8 @@ Gem::Specification.new do |spec|
   spec.authors = ["rameerez"]
   spec.email = ["rubygems@rameerez.com"]
 
-  spec.summary = "Calculate the MRR, ARR, churn & est. valuation of your `pay`-powered Rails SaaS"
-  spec.description = "Calculate the MRR, ARR, churn, total revenue, estimated valuation and other business metrics of your `pay`-powered Rails SaaS app"
+  spec.summary = "Calculate the MRR, ARR, churn, LTV, ARPU, total revenue & est. valuation of your `pay`-powered Rails SaaS"
+  spec.description = "Calculate SaaS metrics like the MRR, ARR, churn, LTV, ARPU, total revenue, estimated valuation, and other business metrics of your `pay`-powered Rails app – and display them in a simple dashboard."
   spec.homepage = "https://github.com/rameerez/profitable"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.0.0"
