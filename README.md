@@ -27,17 +27,20 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 
 ### Revenue metrics
 
-- `Profitable.mrr`: Monthly Recurring Revenue
-- `Profitable.arr`: Annual Recurring Revenue
+- `Profitable.mrr`: Monthly Recurring Revenue (MRR)
+- `Profitable.arr`: Annual Recurring Revenue (ARR)
 - `Profitable.all_time_revenue`: Total revenue since launch
 - `Profitable.new_mrr(in_the_last: 30.days)`: New MRR added in the specified period
 - `Profitable.churned_mrr(in_the_last: 30.days)`: MRR lost due to churn in the specified period
+- `Profitable.average_revenue_per_customer`: Average revenue per customer (ARPU)
+- `Profitable.lifetime_value`: Estimated customer lifetime value (LTV)
 
 ### Customer metrics
 
 - `Profitable.total_customers`: Total number of customers
 - `Profitable.total_subscribers`: Total number of active subscribers
-- `Profitable.new_customers(in_the_last: 30.days)`: Number of new customers added in the specified period
+- `Profitable.new_customers(in_the_last: 30.days)`: Number of new customers (both subscribers and non-subscribers) added in the specified period
+- `Profitable.new_subscribers(in_the_last: 30.days)`: Number of new subscribers added in the specified period
 - `Profitable.churned_customers(in_the_last: 30.days)`: Number of customers who churned in the specified period
 
 ### Other metrics
@@ -59,6 +62,9 @@ Profitable.churn(in_the_last: 3.months).to_readable # => "12%"
 
 # Get the estimated valuation at 5x ARR
 Profitable.estimated_valuation("5x").to_readable # => "$500,000"
+
+# Get the average revenue per customer
+Profitable.average_revenue_per_customer.to_readable # => "$100.00"
 ```
 
 
@@ -90,7 +96,7 @@ mount Profitable::Engine => '/profitable'
 It's a good idea to make sure you're adding some sort of authentication to the `/profitable` route to avoid exposing sensitive information:
 ```ruby
 authenticate :user, ->(user) { user.admin? } do
-    mount Profitable::Engine => '/profitable'
+  mount Profitable::Engine => '/profitable'
 end
 ```
 

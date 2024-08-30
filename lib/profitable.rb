@@ -44,6 +44,15 @@ module Profitable
       NumericResult.new(Pay::Customer.where(created_at: in_the_last.ago..Time.current).count, :integer)
     end
 
+    def new_subscribers(in_the_last: DEFAULT_PERIOD)
+      NumericResult.new(
+        Pay::Subscription.active
+          .where(created_at: in_the_last.ago..Time.current)
+          .distinct.count('customer_id'),
+        :integer
+      )
+    end
+
     def churned_customers(in_the_last: DEFAULT_PERIOD)
       NumericResult.new(calculate_churned_customers(in_the_last), :integer)
     end
@@ -54,6 +63,14 @@ module Profitable
 
     def churned_mrr(in_the_last: DEFAULT_PERIOD)
       NumericResult.new(calculate_churned_mrr(in_the_last))
+    end
+
+    def average_revenue_per_customer
+      NumericResult.new(calculate_average_revenue_per_customer)
+    end
+
+    def lifetime_value
+      NumericResult.new(calculate_lifetime_value)
     end
 
     private
@@ -107,6 +124,18 @@ module Profitable
       new_subscriptions.sum do |subscription|
         MrrCalculator.process_subscription(subscription)
       end
+    end
+
+    def calculate_average_revenue_per_customer
+      return 0 if total_customers.zero?
+      (all_time_revenue.to_f / total_customers).round
+    end
+
+    def calculate_lifetime_value
+      return 0 if total_customers.zero?
+      churn_rate = churn.to_f / 100
+      return 0 if churn_rate.zero?
+      (average_revenue_per_customer.to_f / churn_rate).round
     end
 
   end
