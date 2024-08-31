@@ -115,7 +115,8 @@ module Profitable
     private
 
     def paid_charges
-      Pay::Charge.where("pay_charges.data ->> 'paid' = ?", 'true')
+      Pay::Charge.where("(pay_charges.data ->> 'paid' IS NULL OR pay_charges.data ->> 'paid' != ?) AND pay_charges.amount > 0", 'false')
+                 .where("pay_charges.data ->> 'status' = ? OR pay_charges.data ->> 'status' IS NULL", 'succeeded')
     end
 
     def calculate_all_time_revenue
