@@ -46,8 +46,9 @@ module Profitable
       NumericResult.new(calculate_recurring_revenue_percentage(in_the_last), :percentage)
     end
 
-    def estimated_valuation(multiplier = "3x")
-      NumericResult.new(calculate_estimated_valuation(multiplier))
+    def estimated_valuation(multiplier = 3, at: nil)
+      actual_multiplier = at || multiplier
+      NumericResult.new(calculate_estimated_valuation(actual_multiplier))
     end
 
     def total_customers
@@ -127,9 +128,24 @@ module Profitable
       (mrr.to_f * 12).round
     end
 
-    def calculate_estimated_valuation(multiplier = "3x")
-      multiplier = multiplier.to_s.gsub('x', '').to_f
+    def calculate_estimated_valuation(multiplier = 3)
+      multiplier = parse_multiplier(multiplier)
       (calculate_arr * multiplier).round
+    end
+
+    def parse_multiplier(input)
+      case input
+      when Numeric
+        input.to_f
+      when String
+        if input.end_with?('x')
+          input.chomp('x').to_f
+        else
+          input.to_f
+        end
+      else
+        3.0 # Default multiplier if input is invalid
+      end.clamp(0.1, 100) # Ensure multiplier is within a reasonable range
     end
 
     def calculate_churn(period = DEFAULT_PERIOD)
