@@ -210,7 +210,10 @@ module Profitable
     end
 
     def calculate_total_customers
-      actual_customers.count
+      Pay::Customer.joins(:charges)
+                   .merge(paid_charges)
+                   .distinct
+                   .count
     end
 
     def calculate_total_subscribers
@@ -243,8 +246,9 @@ module Profitable
     end
 
     def calculate_average_revenue_per_customer
-      return 0 if total_customers.zero?
-      (all_time_revenue.to_f / total_customers).round
+      paying_customers = calculate_total_customers
+      return 0 if paying_customers.zero?
+      (all_time_revenue.to_f / paying_customers).round
     end
 
     def calculate_lifetime_value
