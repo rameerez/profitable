@@ -114,8 +114,12 @@ module Profitable
 
     private
 
+    def paid_charges
+      Pay::Charge.where("pay_charges.data ->> 'paid' = ?", 'true')
+    end
+
     def calculate_all_time_revenue
-      Pay::Charge.sum(:amount)
+      paid_charges.sum(:amount)
     end
 
     def calculate_arr
@@ -169,11 +173,11 @@ module Profitable
     end
 
     def calculate_revenue_in_period(period)
-      Pay::Charge.where(created_at: period.ago..Time.current).sum(:amount)
+      paid_charges.where(created_at: period.ago..Time.current).sum(:amount)
     end
 
     def calculate_recurring_revenue_in_period(period)
-      Pay::Charge
+      paid_charges
         .joins('INNER JOIN pay_subscriptions ON pay_charges.subscription_id = pay_subscriptions.id')
         .where(created_at: period.ago..Time.current)
         .sum(:amount)
