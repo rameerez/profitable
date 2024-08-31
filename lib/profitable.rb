@@ -170,23 +170,50 @@ module Profitable
     end
 
     def calculate_churned_mrr(period = DEFAULT_PERIOD)
-      churned_subscriptions(period).sum do |subscription|
-        MrrCalculator.process_subscription(subscription)
-      end
-    end
+      start_date = period.ago
+      end_date = Time.current
 
-    def calculate_new_mrr(period = DEFAULT_PERIOD)
-      new_subscriptions = Pay::Subscription
-        .active
-        .where(pay_subscriptions: { created_at: period.ago..Time.current })
-        .where.not(status: ['trialing', 'paused'])
+      Pay::Subscription
         .includes(:customer)
         .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
         .joins(:customer)
+        .where(status: ['canceled', 'ended'])
+        .where('pay_subscriptions.updated_at BETWEEN ? AND ?', start_date, end_date)
+        .sum do |subscription|
+          if subscription.ends_at && subscription.ends_at > end_date
+            # Subscription ends in the future, don't count it as churned yet
+            0
+          else
+            # Calculate prorated MRR if the subscription ended within the period
+            end_date = [subscription.ends_at, end_date].compact.min
+            days_in_period = (end_date - start_date).to_i
+            total_days = (subscription.current_period_end - subscription.current_period_start).to_i
+            prorated_days = [days_in_period, total_days].min
 
-      new_subscriptions.sum do |subscription|
-        MrrCalculator.process_subscription(subscription)
-      end
+            mrr = MrrCalculator.process_subscription(subscription)
+            (mrr.to_f * prorated_days / total_days).round
+          end
+        end
+    end
+
+    def calculate_new_mrr(period = DEFAULT_PERIOD)
+      start_date = period.ago
+      end_date = Time.current
+
+      Pay::Subscription
+        .active
+        .includes(:customer)
+        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
+        .joins(:customer)
+        .where(created_at: start_date..end_date)
+        .where.not(status: ['trialing', 'paused'])
+        .sum do |subscription|
+          mrr = MrrCalculator.process_subscription(subscription)
+          days_in_period = (end_date - subscription.created_at).to_i
+          total_days = (subscription.current_period_end - subscription.current_period_start).to_i
+          prorated_days = [days_in_period, total_days].min
+          (mrr.to_f * prorated_days / total_days).round
+        end
     end
 
     def calculate_revenue_in_period(period)
