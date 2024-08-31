@@ -106,14 +106,7 @@
         <h2><%= Profitable.revenue_in_period(in_the_last: period).to_readable %></h2>
         <p>total revenue (<%= period_short %>)</p>
       </div>
-      <div class="card">
-        <h2><%= Profitable.recurring_revenue_in_period(in_the_last: period).to_readable %></h2>
-        <p>recurring revenue (<%= period_short %>)</p>
-      </div>
-      <div class="card">
-        <h2><%= Profitable.recurring_revenue_percentage(in_the_last: period).to_readable %></h2>
-        <p>% of recurring revenue (<%= period_short %>)</p>
-      </div>
+
     </div>
   <% end %>
 
