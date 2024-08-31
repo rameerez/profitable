@@ -52,6 +52,9 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 - `Profitable.mrr`: Monthly Recurring Revenue (MRR)
 - `Profitable.arr`: Annual Recurring Revenue (ARR)
 - `Profitable.all_time_revenue`: Total revenue since launch
+- `Profitable.revenue_in_period(in_the_last: 30.days)`: Total revenue (recurring and non-recurring) in the specified period
+- `Profitable.recurring_revenue_in_period(in_the_last: 30.days)`: Only recurring revenue in the specified period
+- `Profitable.recurring_revenue_percentage(in_the_last: 30.days)`: Percentage of revenue that is recurring in the specified period
 - `Profitable.new_mrr(in_the_last: 30.days)`: New MRR added in the specified period
 - `Profitable.churned_mrr(in_the_last: 30.days)`: MRR lost due to churn in the specified period
 - `Profitable.average_revenue_per_customer`: Average revenue per customer (ARPC)
@@ -75,7 +78,8 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 
 ### Growth metrics
 
-- `Profitable.mrr_growth_rate(period: 30.days)`: Calculates the MRR growth rate over the specified period
+- `Profitable.mrr_growth(in_the_last: 30.days)`: Calculates the absolute MRR growth over the specified period
+- `Profitable.mrr_growth_rate(in_the_last: 30.days)`: Calculates the MRR growth rate (as a percentage) over the specified period
 
 ### Milestone metrics
 
@@ -149,16 +153,16 @@ After checking out the repo, run `bin/setup` to install dependencies. Then, run 
 To install this gem onto your local machine, run `bundle exec rake install`.
 
 ## TODO
+- [ ] Calculate split by plan / add support for multiple plans (churn by plan, MRR by plan, etc) – not just aggregated
+- [ ] Calculate MRR expansion (plan upgrades), contraction (plan downgrades), etc. like Stripe does
 - [ ] Add active customers (not just total customers)
-- [ ] Add revenue last month to dashboard
-- [ ] Add % of change over last period
-- [ ] Total revenue vs recurring revenue (both last month and % of recurring vs total)
-- [ ] Support other currencies other than USD
-- [ ] Support for multiple plans (churn by plan, MRR by plan, etc)
-- [ ] Make sure other payment processors other than Stripe work as intended
-- [ ] Account for subscription upgrades/downgrades within a period
+- [ ] Add % of change over last period (this period vs last period)
+- [ ] Calculate total period revenue vs period recurring revenue (started, but not sure if accurate)
+- [ ] Add revenue last month to dashboard (not just past 30d, like previous month)
+- [ ] Support other currencies other than USD (convert currencies)
+- [ ] Make sure other payment processors other than Stripe work as intended (Paddle, Braintree, etc. – I've never used them)
 - [ ] Add a way to input monthly costs (maybe via config file?) so that we can calculate a profit margin %
-- [ ] Allow dashboard configuration via config file
+- [ ] Allow dashboard configuration via config file (which metrics to show, etc.)
 - [ ] Return a JSON in the dashboard endpoint with main metrics (for monitoring / downstream consumption)
 
 ## Contributing
