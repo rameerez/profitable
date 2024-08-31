@@ -17,7 +17,7 @@ module Profitable
 
       subscriptions.find_each do |subscription|
         mrr = process_subscription(subscription)
-        total_mrr += mrr
+        total_mrr += mrr if mrr.is_a?(Numeric) && mrr > 0
       end
 
       total_mrr
@@ -30,7 +30,10 @@ module Profitable
       return 0 if subscription.nil? || subscription.data.nil?
 
       processor_class = processor_for(subscription.customer_processor)
-      processor_class.new(subscription).calculate_mrr
+      mrr = processor_class.new(subscription).calculate_mrr
+
+      # Ensure MRR is a non-negative number
+      mrr.is_a?(Numeric) ? [mrr, 0].max : 0
     rescue => e
       Rails.logger.error("Error calculating MRR for subscription #{subscription.id}: #{e.message}")
       0
