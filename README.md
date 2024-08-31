@@ -128,24 +128,6 @@ Profitable.mrr # => 123456
 - `mrr_growth_rate`: This calculation compares the MRR at the start and end of the specified period. It assumes a linear growth rate over the period, which may not reflect short-term fluctuations. For more accurate results, consider using shorter periods or implementing a more sophisticated growth calculation method if needed.
 - `time_to_next_mrr_milestone`: This estimation is based on the current MRR and the recent growth rate. It assumes a constant growth rate, which may not reflect real-world conditions. The calculation may be inaccurate for very new businesses or those with irregular growth patterns.
 
-## Mount the `/profitable` dashboard
-
-We also provide a simple dashboard with good defaults to see your main business metrics.
-
-In your `config/routes.rb` file, mount the `profitable` engine:
-```ruby
-mount Profitable::Engine => '/profitable'
-```
-
-It's a good idea to make sure you're adding some sort of authentication to the `/profitable` route to avoid exposing sensitive information:
-```ruby
-authenticate :user, ->(user) { user.admin? } do
-  mount Profitable::Engine => '/profitable'
-end
-```
-
-You can now navigate to `/profitable` to see your app's business metrics like MRR, ARR, churn, etc.
-
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
