@@ -1,5 +1,9 @@
 # `profitable`
 
+## [0.2.3] - 2024-09-01
+
+- Fix the `time_to_next_mrr_milestone` estimation and make it accurate to the day
+
 ## [0.2.2] - 2024-09-01
 
 - Improve MRR calculations with prorated churned and new MRR (hopefully fixes bad churned MRR calculations)
