@@ -100,11 +100,11 @@ Profitable.churn(in_the_last: 3.months).to_readable # => "12%"
 # You can specify the precision of the output number (no decimals by default)
 Profitable.new_mrr(in_the_last: 24.hours).to_readable(2) # => "$123.45"
 
-# Get the estimated valuation at 5x ARR
-Profitable.estimated_valuation(at: "5x").to_readable # => "$500,000"
+# Get the estimated valuation at 5x ARR (defaults to 3x if no multiple is specified)
+Profitable.estimated_valuation(multiple: 5).to_readable # => "$500,000"
 
-# You can also pass the multiplier as a number, and/or ignore the "at:" keyword altogether
-Profitable.estimated_valuation(4.5).to_readable # => "$450,000"
+# You can also pass the multiplier as a string. You can also use the `at:` keyword argument (same thing as `multiplier:`) – and/or ignore the `at:` or `multiplier:` named arguments altogether
+Profitable.estimated_valuation(at: "4.5x").to_readable # => "$450,000"
 
 # Get the time to next MRR milestone
 Profitable.time_to_next_mrr_milestone.to_readable  # => "26 days left to $10,000 MRR"

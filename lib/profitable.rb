@@ -46,8 +46,8 @@ module Profitable
       NumericResult.new(calculate_recurring_revenue_percentage(in_the_last), :percentage)
     end
 
-    def estimated_valuation(multiplier = 3, at: nil)
-      actual_multiplier = at || multiplier
+    def estimated_valuation(multiplier = nil, at: nil, multiple: nil)
+      actual_multiplier = multiplier || at || multiple || 3
       NumericResult.new(calculate_estimated_valuation(actual_multiplier))
     end
 
