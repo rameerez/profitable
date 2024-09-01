@@ -16,7 +16,7 @@ module Profitable
     include ActionView::Helpers::NumberHelper
 
     DEFAULT_PERIOD = 30.days
-    MRR_MILESTONES = [100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000]
+    MRR_MILESTONES = [5, 10, 20, 30, 50, 75, 100, 200, 300, 400, 500, 1_000, 2_000, 3_000, 5_000, 10_000, 20_000, 30_000, 50_000, 83_333, 100_000, 250_000, 500_000, 1_000_000, 5_000_000, 10_000_000, 25_000_000, 50_000_000, 75_000_000, 100_000_000]
 
     def mrr
       NumericResult.new(MrrCalculator.calculate)
