@@ -104,7 +104,7 @@ module Profitable
       next_milestone = MRR_MILESTONES.find { |milestone| milestone > current_mrr }
       return "Congratulations! You've reached the highest milestone." unless next_milestone
 
-      growth_rate = calculate_mrr_growth_rate
+      growth_rate = calculate_mrr_growth_rate / 100
       return "Unable to calculate. Need more data or positive growth." if growth_rate <= 0
 
       months_to_milestone = (Math.log(next_milestone.to_f / current_mrr) / Math.log(1 + growth_rate)).ceil
