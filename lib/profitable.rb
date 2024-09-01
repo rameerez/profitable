@@ -104,13 +104,18 @@ module Profitable
       next_milestone = MRR_MILESTONES.find { |milestone| milestone > current_mrr }
       return "Congratulations! You've reached the highest milestone." unless next_milestone
 
-      growth_rate = calculate_mrr_growth_rate / 100
-      return "Unable to calculate. Need more data or positive growth." if growth_rate <= 0
+      monthly_growth_rate = calculate_mrr_growth_rate / 100
+      return "Unable to calculate. Need more data or positive growth." if monthly_growth_rate <= 0
 
-      months_to_milestone = (Math.log(next_milestone.to_f / current_mrr) / Math.log(1 + growth_rate)).ceil
-      days_to_milestone = months_to_milestone * 30
+      # Convert monthly growth rate to daily growth rate
+      daily_growth_rate = (1 + monthly_growth_rate) ** (1.0 / 30) - 1
 
-      return "#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR (#{(Time.current + days_to_milestone.days).strftime('%b %d, %Y')})"
+      # Calculate the number of days to reach the next milestone
+      days_to_milestone = (Math.log(next_milestone.to_f / current_mrr) / Math.log(1 + daily_growth_rate)).ceil
+
+      target_date = Time.current + days_to_milestone.days
+
+      "#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR (#{target_date.strftime('%b %d, %Y')})"
     end
 
     private
