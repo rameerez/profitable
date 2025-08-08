@@ -8,3 +8,4 @@
 /tmp/
 /dist
 *.gem
+/vendor/

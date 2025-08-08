@@ -22,3 +22,6 @@
 ## [0.1.0] - 2024-08-29
 
 - Initial test release (not production ready)
+
+## Unreleased
+- Add comprehensive Minitest test suite, in-memory DB setup, coverage, and CI-ready test task.
