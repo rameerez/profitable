@@ -2,12 +2,18 @@
 
 module Profitable
   module JsonHelpers
+    # Regex patterns for validating SQL identifiers to prevent SQL injection
+    # Only allows: alphanumeric characters, underscores, and dots (for table.column format)
+    VALID_TABLE_COLUMN_PATTERN = /\A[a-zA-Z_][a-zA-Z0-9_.]*\z/
+    VALID_JSON_KEY_PATTERN = /\A[a-zA-Z_][a-zA-Z0-9_]*\z/
+
     # Returns the appropriate JSON extraction syntax for the current database adapter
     # Supports PostgreSQL, MySQL (5.7.9+), and SQLite
     #
     # @param table_column [String] The table and column name (e.g., 'pay_charges.object')
     # @param json_key [String] The JSON key to extract (e.g., 'paid', 'status')
     # @return [String] Database-specific SQL for JSON extraction
+    # @raise [ArgumentError] if table_column or json_key contain invalid characters
     #
     # @example PostgreSQL
     #   json_extract('pay_charges.object', 'paid')
@@ -21,6 +27,10 @@ module Profitable
     #   json_extract('pay_charges.object', 'paid')
     #   # => "json_extract(pay_charges.object, '$.paid')"
     def json_extract(table_column, json_key)
+      # Validate inputs to prevent SQL injection
+      validate_table_column!(table_column)
+      validate_json_key!(json_key)
+
       adapter = ActiveRecord::Base.connection.adapter_name.downcase
 
       case adapter
@@ -36,6 +46,22 @@ module Profitable
         # Fallback to PostgreSQL syntax for unknown adapters
         Rails.logger.warn("Unknown database adapter '#{adapter}' for JSON extraction. Falling back to PostgreSQL syntax.")
         "#{table_column} ->> '#{json_key}'"
+      end
+    end
+
+    private
+
+    def validate_table_column!(table_column)
+      unless table_column.is_a?(String) && table_column.match?(VALID_TABLE_COLUMN_PATTERN)
+        raise ArgumentError, "Invalid table_column format: #{table_column.inspect}. " \
+          "Must be alphanumeric with underscores/dots only (e.g., 'pay_charges.object')."
+      end
+    end
+
+    def validate_json_key!(json_key)
+      unless json_key.is_a?(String) && json_key.match?(VALID_JSON_KEY_PATTERN)
+        raise ArgumentError, "Invalid json_key format: #{json_key.inspect}. " \
+          "Must be alphanumeric with underscores only (e.g., 'paid', 'status')."
       end
     end
   end

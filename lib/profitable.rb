@@ -128,6 +128,11 @@ module Profitable
     def paid_charges
       # Pay gem v10+ stores charge data in `object` column, older versions used `data`
       # We check both columns for backwards compatibility using database-agnostic JSON extraction
+      #
+      # Performance note: The COALESCE pattern may prevent index usage on some databases.
+      # This is an acceptable tradeoff for backwards compatibility with Pay < 10.
+      # For high-volume scenarios, consider adding a composite index or upgrading to Pay 10+
+      # where only the `object` column is used.
 
       # Build JSON extraction SQL for both object and data columns
       paid_object = json_extract('pay_charges.object', 'paid')
