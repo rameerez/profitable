@@ -1,5 +1,8 @@
 # `profitable`
 
+## [0.3.0] - 2026-01-01
+- Add Pay v10+ support, comprehensive Minitest test suite, and 16 critical bugfixes re: wrong calculations
+
 ## [0.2.3] - 2024-09-01
 
 - Fix the `time_to_next_mrr_milestone` estimation and make it accurate to the day
