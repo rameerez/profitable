@@ -27,9 +27,13 @@ module Profitable
     end
 
     def self.process_subscription(subscription)
-      return 0 if subscription.nil? || subscription.data.nil?
+      return 0 if subscription.nil?
+      return 0 if subscription_data(subscription).nil?
 
-      processor_class = processor_for(subscription.customer_processor)
+      # Get processor from virtual attribute (set by .select() in queries) or from customer association
+      processor_name = subscription.try(:customer_processor) || subscription.customer&.processor
+
+      processor_class = processor_for(processor_name)
       mrr = processor_class.new(subscription).calculate_mrr
 
       # Ensure MRR is a non-negative number
@@ -37,6 +41,12 @@ module Profitable
     rescue => e
       Rails.logger.error("Error calculating MRR for subscription #{subscription.id}: #{e.message}")
       0
+    end
+
+    # Pay gem v10+ stores Stripe objects in the `object` column,
+    # while older versions used `data`. This method provides backwards compatibility.
+    def self.subscription_data(subscription)
+      subscription.try(:object) || subscription.try(:data)
     end
 
     def self.processor_for(processor_name)

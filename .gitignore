@@ -8,3 +8,6 @@
 /tmp/
 /dist
 *.gem
+Gemfile.lock
+TODO
+VERIFICATION.md
