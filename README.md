@@ -133,7 +133,88 @@ Profitable.mrr # => 123456
 
 ## Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+### Setup
+
+After checking out the repo, install dependencies:
+
+```bash
+bundle install
+```
+
+### Running Tests
+
+The gem includes a comprehensive test suite with 211 tests covering all functionality:
+
+```bash
+# Run all tests
+bundle exec rake test
+
+# Run tests with verbose output
+bundle exec rake test TESTOPTS="-v"
+```
+
+### Testing Against Multiple Pay Gem Versions
+
+This gem uses [Appraisal](https://github.com/thoughtbot/appraisal) to test against multiple versions of the Pay gem, ensuring compatibility across Pay 7.x through 11.x.
+
+**Supported Pay versions:**
+- Pay 7.3.x (minimum supported version)
+- Pay 8.3.x
+- Pay 9.0.x
+- Pay 10.x (with `object` column support)
+- Pay 11.x (latest)
+
+**Generate appraisal gemfiles:**
+
+```bash
+bundle exec appraisal install
+```
+
+**Run tests against a specific Pay version:**
+
+```bash
+# Test against Pay 10.x
+bundle exec appraisal pay-10.0 rake test
+
+# Test against Pay 11.x
+bundle exec appraisal pay-11.0 rake test
+```
+
+**Run tests against all Pay versions:**
+
+```bash
+bundle exec appraisal rake test
+```
+
+### Continuous Integration
+
+The gem uses GitHub Actions to automatically test against:
+- Ruby versions: 3.2, 3.3, 3.4
+- Pay gem versions: 7.3.x, 8.3.x, 9.0.x, 10.x, 11.x
+- Total test matrix: 18 combinations (3 Ruby × 6 Pay versions)
+
+See [`.github/workflows/test.yml`](.github/workflows/test.yml) for the full CI configuration.
+
+### Database Compatibility
+
+Tests run on SQLite by default, but the gem supports:
+- PostgreSQL (9.3+)
+- MySQL (5.7.9+)
+- MariaDB (10.2.7+)
+- SQLite (3.9.0+)
+
+The gem automatically detects your database adapter and uses the appropriate JSON query syntax.
+
+### Test Coverage
+
+The test suite includes:
+- **211 tests** with **250 assertions**
+- **10 test files** totaling **6,151 lines** of test code
+- **22 regression tests** preventing critical bugs
+- Comprehensive processor tests (Stripe, Braintree, Paddle Billing, Paddle Classic)
+- Pay v10+ compatibility tests (`object` vs `data` column)
+- Database-agnostic JSON query tests
+- All public API methods tested
 
 To install this gem onto your local machine, run `bundle exec rake install`.
 
