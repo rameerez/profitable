@@ -2,9 +2,14 @@ module Profitable
   module Processors
     class PaddleClassicProcessor < Base
       def calculate_mrr
-        amount = subscription.data['recurring_price']
+        data = subscription_data
+        return 0 if data.nil?
+
+        amount = data['recurring_price']
+        return 0 if amount.nil?
+
         quantity = subscription.quantity || 1
-        interval = subscription.data['recurring_interval']
+        interval = data['recurring_interval']
         interval_count = 1 # Paddle Classic doesn't have interval_count
 
         normalize_to_monthly(amount * quantity, interval, interval_count)

@@ -8,3 +8,9 @@
 /tmp/
 /dist
 *.gem
+Gemfile.lock
+TODO
+VERIFICATION.md
+
+# Appraisal - exclude gemfile lockfiles but keep generated Gemfiles
+/gemfiles/*.gemfile.lock
