@@ -1,4 +1,4 @@
-# 💸 `profitable` - SaaS metrics for your Rails app
+# 💸 `profitable` - MRR dashboard & SaaS metrics for your Rails app
 
 [![Gem Version](https://badge.fury.io/rb/profitable.svg)](https://badge.fury.io/rb/profitable) [![Build Status](https://github.com/rameerez/profitable/workflows/Tests/badge.svg)](https://github.com/rameerez/profitable/actions)
 
