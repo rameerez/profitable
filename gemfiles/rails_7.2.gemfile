@@ -7,17 +7,17 @@ gem "rails", "~> 7.2.0"
 gem "pay", "~> 11.0"
 gem "stripe", "~> 18.0"
 
-group :development do
-  gem "appraisal", "~> 2.5"
-end
-
-group :test do
-  gem "minitest", "~> 5.0"
-  gem "minitest-reporters", "~> 1.6"
+group :development, :test do
+  gem "appraisal"
+  gem "minitest", "~> 6.0"
+  gem "minitest-mock"
+  gem "minitest-reporters"
+  gem "rack-test"
+  gem "simplecov", require: false
+  gem "sqlite3", ">= 2.1"
   gem "mocha", "~> 2.1"
   gem "activerecord", ">= 7.0"
   gem "actionview", ">= 7.0"
-  gem "sqlite3"
 end
 
 gemspec path: "../"
