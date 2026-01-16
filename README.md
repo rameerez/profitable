@@ -5,7 +5,7 @@
 > [!TIP]
 > **🚀 Ship your next Rails app 10x faster!** I've built **[RailsFast](https://railsfast.com/?ref=profitable)**, a production-ready Rails boilerplate template that comes with everything you need to launch a software business in days, not weeks. Go [check it out](https://railsfast.com/?ref=profitable)!
 
-`profitable` allows you to calculate the MRR, ARR, churn, LTV, ARPU, total revenue & estimated valuation of your `pay`-powered Rails SaaS app, and display them in a simple dashboard.
+`profitable` allows you to calculate the MRR, ARR, churn, LTV, ARPU, total revenue & estimated valuation of your `pay`-powered Rails SaaS app, and display them in a simple dashboard. It also provides handy methods you can use independently if you don't want the full dashboard.
 
 ![Profitable gem main dashboard](profitable.webp)
 
