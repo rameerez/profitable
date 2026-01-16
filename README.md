@@ -15,7 +15,7 @@
 
 Usually, you would look into your Stripe Dashboard or query the Stripe API to know your MRR / ARR / churn – but when you're using `pay`, you already have that data available and auto synced to your own database. So we can leverage it to make handy, composable ActiveRecord queries that you can reuse in any part of your Rails app (dashboards, internal pages, reports, status messages, etc.)
 
-Think doing something like: `"Your app is currently at $#{Profitable.mrr} MRR – Estimated to be worth $#{Profitable.valuation_estimate("3x")} at a 3x valuation"`
+Think doing something like: `"Current MRR: $#{Profitable.mrr}"` or `"Your app is worth $#{Profitable.valuation_estimate("3x")} at a 3x valuation"`
 
 ## Installation
 
