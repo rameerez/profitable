@@ -3,7 +3,7 @@
 [![Gem Version](https://badge.fury.io/rb/profitable.svg)](https://badge.fury.io/rb/profitable) [![Build Status](https://github.com/rameerez/profitable/workflows/Tests/badge.svg)](https://github.com/rameerez/profitable/actions)
 
 > [!TIP]
-> **🚀 Ship your next Rails app 10x faster!** I've built **[RailsFast](https://railsfast.com)**, a production-ready Rails boilerplate template that comes with everything you need to launch a software business in days, not weeks.
+> **🚀 Ship your next Rails app 10x faster!** I've built **[RailsFast](https://railsfast.com/?ref=profitable)**, a production-ready Rails boilerplate template that comes with everything you need to launch a software business in days, not weeks. Go [check it out](https://railsfast.com/?ref=profitable)!
 
 `profitable` allows you to calculate the MRR, ARR, churn, LTV, ARPU, total revenue & estimated valuation of your `pay`-powered Rails SaaS app, and display them in a simple dashboard.
 
