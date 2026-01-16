@@ -2,11 +2,16 @@
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 
+# SimpleCov must be loaded BEFORE any application code
+# Configuration is auto-loaded from .simplecov file
+require "simplecov"
+
 require "bundler/setup"
 require "active_record"
 require "active_support/all"
 require "action_view"
 require "minitest/autorun"
+require "minitest/mock"
 require "minitest/reporters"
 require "mocha/minitest"
 
