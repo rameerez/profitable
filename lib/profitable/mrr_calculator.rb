@@ -10,7 +10,7 @@ module Profitable
       total_mrr = 0
       subscriptions = Pay::Subscription
         .active
-        .where.not(status: ['trialing', 'paused'])
+        .where.not(status: Profitable::EXCLUDED_STATUSES)
         .includes(:customer)
         .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
         .joins(:customer)

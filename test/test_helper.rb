@@ -127,8 +127,16 @@ require_relative "../lib/profitable/json_helpers"
 
 require "active_support/core_ext/numeric/conversions"
 
-# Define the Profitable module (mirroring the real implementation)
+# Define the Profitable module (mirroring the real implementation in lib/profitable.rb)
+# IMPORTANT: This must be kept in sync with lib/profitable.rb.
+# We can't load lib/profitable.rb directly because `require "pay"` loads the full
+# Pay engine which needs Rails. Instead we define minimal Pay models above and
+# mirror the Profitable module here.
 module Profitable
+  # Subscription status constants (at module level so MrrCalculator can reference them)
+  EXCLUDED_STATUSES = ['trialing', 'paused'].freeze
+  CHURNED_STATUSES  = ['canceled', 'ended'].freeze
+
   class << self
     include ActionView::Helpers::NumberHelper
     include Profitable::JsonHelpers
@@ -239,7 +247,27 @@ module Profitable
       "#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR (#{target_date.strftime('%b %d, %Y')})"
     end
 
+    def monthly_summary(months: 12)
+      calculate_monthly_summary(months)
+    end
+
+    def daily_summary(days: 30)
+      calculate_daily_summary(days)
+    end
+
+    def period_data(in_the_last: DEFAULT_PERIOD)
+      calculate_period_data(in_the_last)
+    end
+
     private
+
+    # Helper to load subscriptions with processor info from customer
+    def subscriptions_with_processor(scope = Pay::Subscription.all)
+      scope
+        .includes(:customer)
+        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
+        .joins(:customer)
+    end
 
     def paid_charges
       # Pay gem v10+ stores charge data in `object` column, older versions used `data`
@@ -295,63 +323,19 @@ module Profitable
     end
 
     def calculate_churn(period = DEFAULT_PERIOD)
-      start_date = period.ago
-
-      # Count subscribers who were active AT the start of the period
-      total_subscribers_start = Pay::Subscription
-        .where('pay_subscriptions.created_at < ?', start_date)
-        .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', start_date)
-        .where.not(status: ['trialing', 'paused'])
-        .distinct
-        .count('customer_id')
-
-      churned = calculate_churned_customers(period)
-      return 0 if total_subscribers_start == 0
-      (churned.to_f / total_subscribers_start * 100).round(2)
-    end
-
-    def churned_subscriptions(period = DEFAULT_PERIOD)
-      Pay::Subscription
-        .includes(:customer)
-        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
-        .joins(:customer)
-        .where(status: ['canceled', 'ended'])
-        .where(ends_at: period.ago..Time.current)
+      calculate_churn_rate_for_period(period.ago, Time.current)
     end
 
     def calculate_churned_customers(period = DEFAULT_PERIOD)
-      churned_subscriptions(period).distinct.count('customer_id')
+      calculate_churned_subscribers_in_period(period.ago, Time.current)
     end
 
     def calculate_churned_mrr(period = DEFAULT_PERIOD)
-      start_date = period.ago
-      end_date = Time.current
-
-      Pay::Subscription
-        .includes(:customer)
-        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
-        .joins(:customer)
-        .where(status: ['canceled', 'ended'])
-        .where(ends_at: start_date..end_date)
-        .sum do |subscription|
-          MrrCalculator.process_subscription(subscription)
-        end
+      calculate_churned_mrr_in_period(period.ago, Time.current)
     end
 
     def calculate_new_mrr(period = DEFAULT_PERIOD)
-      start_date = period.ago
-      end_date = Time.current
-
-      Pay::Subscription
-        .active
-        .includes(:customer)
-        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
-        .joins(:customer)
-        .where(created_at: start_date..end_date)
-        .where.not(status: ['trialing', 'paused'])
-        .sum do |subscription|
-          MrrCalculator.process_subscription(subscription)
-        end
+      calculate_new_mrr_in_period(period.ago, Time.current)
     end
 
     def calculate_revenue_in_period(period)
@@ -404,10 +388,7 @@ module Profitable
     end
 
     def calculate_new_subscribers(period)
-      Pay::Customer.joins(:subscriptions)
-                   .where(pay_subscriptions: { created_at: period.ago..Time.current })
-                   .distinct
-                   .count
+      calculate_new_subscribers_in_period(period.ago, Time.current)
     end
 
     def calculate_average_revenue_per_customer
@@ -417,14 +398,16 @@ module Profitable
     end
 
     def calculate_lifetime_value
+      # LTV = Monthly ARPU / Monthly Churn Rate
+      # where ARPU (Average Revenue Per User) = MRR / active subscribers
       subscribers = calculate_active_subscribers
       return 0 if subscribers.zero?
 
-      monthly_arpu = mrr.to_f / subscribers
-      churn_rate = churn.to_f / 100
+      monthly_arpu = mrr.to_f / subscribers  # in cents
+      churn_rate = churn.to_f / 100  # monthly churn as decimal (e.g., 5% = 0.05)
       return 0 if churn_rate.zero?
 
-      (monthly_arpu / churn_rate).round
+      (monthly_arpu / churn_rate).round  # LTV in cents
     end
 
     def calculate_mrr_growth(period = DEFAULT_PERIOD)
@@ -445,18 +428,220 @@ module Profitable
     end
 
     def calculate_mrr_at(date)
-      Pay::Subscription
-        .where('pay_subscriptions.created_at <= ?', date)
-        .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', date)
-        .where('pay_subscriptions.pause_starts_at IS NULL OR pay_subscriptions.pause_starts_at > ?', date)
-        .where.not(status: ['trialing', 'paused'])
-        .includes(:customer)
-        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
-        .joins(:customer)
-        .sum do |subscription|
-          MrrCalculator.process_subscription(subscription)
-        end
+      # Find subscriptions that were active AT the given date:
+      # - Created before or on that date
+      # - Not ended before that date (ends_at is nil OR ends_at > date)
+      # - Not paused at that date
+      # - Not in trialing status (trials don't count as MRR)
+      subscriptions_with_processor(
+        Pay::Subscription
+          .where('pay_subscriptions.created_at <= ?', date)
+          .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', date)
+          .where('pay_subscriptions.pause_starts_at IS NULL OR pay_subscriptions.pause_starts_at > ?', date)
+          .where.not(status: EXCLUDED_STATUSES)
+      ).sum do |subscription|
+        MrrCalculator.process_subscription(subscription)
+      end
     end
+
+    def calculate_period_data(period)
+      period_start = period.ago
+      period_end = Time.current
+
+      new_customers_count = actual_customers.where(created_at: period_start..period_end).count
+      churned_count = calculate_churned_subscribers_in_period(period_start, period_end)
+      new_mrr_val = calculate_new_mrr_in_period(period_start, period_end)
+      churned_mrr_val = calculate_churned_mrr_in_period(period_start, period_end)
+      revenue_val = paid_charges.where(created_at: period_start..period_end).sum(:amount)
+
+      # Churn rate (reuses churned_count)
+      total_at_start = Pay::Subscription
+        .where('pay_subscriptions.created_at < ?', period_start)
+        .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', period_start)
+        .where.not(status: EXCLUDED_STATUSES)
+        .distinct
+        .count('customer_id')
+      churn_rate = total_at_start > 0 ? (churned_count.to_f / total_at_start * 100).round(1) : 0
+
+      {
+        new_customers: NumericResult.new(new_customers_count, :integer),
+        churned_customers: NumericResult.new(churned_count, :integer),
+        churn: NumericResult.new(churn_rate, :percentage),
+        new_mrr: NumericResult.new(new_mrr_val),
+        churned_mrr: NumericResult.new(churned_mrr_val),
+        mrr_growth: NumericResult.new(new_mrr_val - churned_mrr_val),
+        revenue: NumericResult.new(revenue_val)
+      }
+    end
+
+    # Batched: loads all data in 5 queries then groups by month in Ruby
+    def calculate_monthly_summary(months_count)
+      overall_start = (months_count - 1).months.ago.beginning_of_month
+      overall_end = Time.current.end_of_month
+
+      # Bulk load all data for the full range
+      new_sub_records = Pay::Subscription
+        .where(created_at: overall_start..overall_end)
+        .where.not(status: EXCLUDED_STATUSES)
+        .pluck(:customer_id, :created_at)
+
+      churned_sub_records = Pay::Subscription
+        .where(status: CHURNED_STATUSES)
+        .where(ends_at: overall_start..overall_end)
+        .pluck(:customer_id, :ends_at)
+
+      new_mrr_subs = subscriptions_with_processor(
+        Pay::Subscription
+          .where(status: 'active')
+          .where(created_at: overall_start..overall_end)
+      ).to_a
+
+      churned_mrr_subs = subscriptions_with_processor(
+        Pay::Subscription
+          .where(status: CHURNED_STATUSES)
+          .where(ends_at: overall_start..overall_end)
+      ).to_a
+
+      churn_base_records = Pay::Subscription
+        .where('pay_subscriptions.created_at < ?', overall_end)
+        .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', overall_start)
+        .where.not(status: EXCLUDED_STATUSES)
+        .pluck(:customer_id, :created_at, :ends_at)
+
+      # Group by month in Ruby
+      summary = []
+      (months_count - 1).downto(0) do |months_ago|
+        month_start = months_ago.months.ago.beginning_of_month
+        month_end = month_start.end_of_month
+
+        new_count = new_sub_records
+          .select { |_, created_at| created_at >= month_start && created_at <= month_end }
+          .map(&:first).uniq.count
+
+        churned_count = churned_sub_records
+          .select { |_, ends_at| ends_at >= month_start && ends_at <= month_end }
+          .map(&:first).uniq.count
+
+        new_mrr_amount = new_mrr_subs
+          .select { |s| s.created_at >= month_start && s.created_at <= month_end }
+          .sum { |s| MrrCalculator.process_subscription(s) }
+
+        churned_mrr_amount = churned_mrr_subs
+          .select { |s| s.ends_at >= month_start && s.ends_at <= month_end }
+          .sum { |s| MrrCalculator.process_subscription(s) }
+
+        total_at_start = churn_base_records
+          .select { |_, created_at, ends_at| created_at < month_start && (ends_at.nil? || ends_at > month_start) }
+          .map(&:first).uniq.count
+
+        churn_rate = total_at_start > 0 ? (churned_count.to_f / total_at_start * 100).round(1) : 0
+
+        summary << {
+          month: month_start.strftime('%Y-%m'),
+          month_date: month_start,
+          new_subscribers: new_count,
+          churned_subscribers: churned_count,
+          net_subscribers: new_count - churned_count,
+          new_mrr: new_mrr_amount,
+          churned_mrr: churned_mrr_amount,
+          net_mrr: new_mrr_amount - churned_mrr_amount,
+          churn_rate: churn_rate
+        }
+      end
+
+      summary
+    end
+
+    # Batched: loads all data in 2 queries then groups by day in Ruby
+    def calculate_daily_summary(days_count)
+      overall_start = (days_count - 1).days.ago.beginning_of_day
+      overall_end = Time.current.end_of_day
+
+      new_sub_records = Pay::Subscription
+        .where(created_at: overall_start..overall_end)
+        .where.not(status: EXCLUDED_STATUSES)
+        .pluck(:customer_id, :created_at)
+
+      churned_sub_records = Pay::Subscription
+        .where(status: CHURNED_STATUSES)
+        .where(ends_at: overall_start..overall_end)
+        .pluck(:customer_id, :ends_at)
+
+      summary = []
+      (days_count - 1).downto(0) do |days_ago|
+        day_start = days_ago.days.ago.beginning_of_day
+        day_end = day_start.end_of_day
+
+        new_count = new_sub_records
+          .select { |_, created_at| created_at >= day_start && created_at <= day_end }
+          .map(&:first).uniq.count
+
+        churned_count = churned_sub_records
+          .select { |_, ends_at| ends_at >= day_start && ends_at <= day_end }
+          .map(&:first).uniq.count
+
+        summary << {
+          date: day_start.to_date,
+          new_subscribers: new_count,
+          churned_subscribers: churned_count
+        }
+      end
+
+      summary
+    end
+
+    # Consolidated methods that work with any date range
+    def calculate_new_subscribers_in_period(period_start, period_end)
+      Pay::Customer.joins(:subscriptions)
+                   .where(pay_subscriptions: { created_at: period_start..period_end })
+                   .where.not(pay_subscriptions: { status: EXCLUDED_STATUSES })
+                   .distinct
+                   .count
+    end
+
+    def calculate_churned_subscribers_in_period(period_start, period_end)
+      Pay::Subscription
+        .where(status: CHURNED_STATUSES)
+        .where(ends_at: period_start..period_end)
+        .distinct
+        .count('customer_id')
+    end
+
+    def calculate_new_mrr_in_period(period_start, period_end)
+      subscriptions_with_processor(
+        Pay::Subscription
+          .where(status: 'active')
+          .where(created_at: period_start..period_end)
+      ).sum do |subscription|
+        MrrCalculator.process_subscription(subscription)
+      end
+    end
+
+    def calculate_churned_mrr_in_period(period_start, period_end)
+      subscriptions_with_processor(
+        Pay::Subscription
+          .where(status: CHURNED_STATUSES)
+          .where(ends_at: period_start..period_end)
+      ).sum do |subscription|
+        MrrCalculator.process_subscription(subscription)
+      end
+    end
+
+    def calculate_churn_rate_for_period(period_start, period_end)
+      # Count subscribers who were active AT the start of the period
+      total_subscribers_start = Pay::Subscription
+        .where('pay_subscriptions.created_at < ?', period_start)
+        .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', period_start)
+        .where.not(status: EXCLUDED_STATUSES)
+        .distinct
+        .count('customer_id')
+
+      churned = calculate_churned_subscribers_in_period(period_start, period_end)
+      return 0 if total_subscribers_start == 0
+
+      (churned.to_f / total_subscribers_start * 100).round(1)
+    end
+
   end
 end
 
