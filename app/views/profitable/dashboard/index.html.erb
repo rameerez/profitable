@@ -1,4 +1,9 @@
 <style>
+  main h2.title {
+    font-size: 1.25rem;
+    margin: 64px 0 12px 0;
+  }
+
   .card-grid {
     display: flex;
     flex-wrap: wrap;
@@ -32,8 +37,8 @@
 
 <header>
   <h1>💸 <%= Rails.application.class.module_parent_name %></h1>
-  <% if Profitable.mrr_growth_rate > 0 %>
-    <p><%= Profitable.time_to_next_mrr_milestone %></p>
+  <% if @show_milestone %>
+    <p><%= @milestone_message %></p>
   <% end %>
 </header>
 
@@ -41,69 +46,197 @@
 
   <div class="card-grid">
     <div class="card">
-      <h2><%= Profitable.total_customers.to_readable %></h2>
+      <h2><%= @total_customers.to_readable %></h2>
       <p>total customers</p>
     </div>
     <div class="card">
-      <h2><%= Profitable.mrr.to_readable %></h2>
+      <h2><%= @mrr.to_readable %></h2>
       <p>MRR</p>
     </div>
     <div class="card">
-      <h2><%= Profitable.estimated_valuation.to_readable %></h2>
+      <h2><%= @estimated_valuation.to_readable %></h2>
       <p>Valuation at 3x ARR</p>
     </div>
     <div class="card">
-      <h2><%= Profitable.mrr_growth_rate.to_readable %></h2>
+      <h2><%= @mrr_growth_rate.to_readable %></h2>
       <p>MRR growth rate</p>
     </div>
     <div class="card">
-      <h2><%= Profitable.average_revenue_per_customer.to_readable %></h2>
+      <h2><%= @average_revenue_per_customer.to_readable %></h2>
       <p>ARPC</p>
     </div>
     <div class="card">
-      <h2><%= Profitable.lifetime_value.to_readable %></h2>
+      <h2><%= @lifetime_value.to_readable %></h2>
       <p>LTV</p>
     </div>
     <div class="card">
-      <h2><%= Profitable.all_time_revenue.to_readable %></h2>
+      <h2><%= @all_time_revenue.to_readable %></h2>
       <p>All-time revenue</p>
     </div>
   </div>
 
-  <% [24.hours, 7.days, 30.days].each do |period| %>
-    <% period_short = period.inspect.gsub("days", "d").gsub("hours", "h").gsub(" ", "") %>
+  <h2 class="title">Monthly summary</h2>
+  <small>(last 12 months)</small>
 
-    <h2>Last <%= period.inspect %></h2>
+  <style>
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+      background-color: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--standard-border-radius);
+      overflow: hidden;
+    }
+
+    .summary-table th,
+    .summary-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .summary-table th {
+      font-weight: 600;
+      background-color: var(--bg);
+      position: sticky;
+      top: 0;
+    }
+
+    .summary-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .summary-table .positive {
+      color: #10b981;
+    }
+
+    .summary-table .negative {
+      color: #ef4444;
+    }
+
+    .summary-table .muted {
+      color: #6b7280;
+      font-size: 0.875em;
+    }
+
+    .summary-table tbody tr:hover {
+      background-color: rgba(0, 0, 0, 0.02);
+    }
+  </style>
+
+  <table class="summary-table">
+    <thead>
+      <tr>
+        <th>Month</th>
+        <th>New</th>
+        <th>Churned</th>
+        <th>Net</th>
+        <th>Churn %</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @monthly_summary.reverse.each do |month_data| %>
+        <tr>
+          <td><strong><%= month_data[:month_date].strftime('%b %Y') %></strong></td>
+          <td>
+            <span class="positive">+<%= month_data[:new_subscribers] %></span>
+            <span class="muted">(~<%= number_to_currency(month_data[:new_mrr] / 100.0, precision: 0) %>)</span>
+          </td>
+          <td>
+            <% if month_data[:churned_subscribers] > 0 %>
+              <span class="negative">-<%= month_data[:churned_subscribers] %></span>
+              <span class="muted">(~<%= number_to_currency(month_data[:churned_mrr] / 100.0, precision: 0) %>)</span>
+            <% else %>
+              <span>0</span>
+            <% end %>
+          </td>
+          <td>
+            <% if month_data[:net_subscribers] > 0 %>
+              <span class="positive">+<%= month_data[:net_subscribers] %></span>
+              <span class="muted">(~+<%= number_to_currency(month_data[:net_mrr] / 100.0, precision: 0) %>)</span>
+            <% elsif month_data[:net_subscribers] < 0 %>
+              <span class="negative"><%= month_data[:net_subscribers] %></span>
+              <span class="muted">(~<%= number_to_currency(month_data[:net_mrr] / 100.0, precision: 0) %>)</span>
+            <% else %>
+              <span>0</span>
+            <% end %>
+          </td>
+          <td><%= month_data[:churn_rate] %>%</td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+
+  <h2 class="title">Daily summary</h2>
+  <small>(last 30 days)</small>
+
+  <table class="summary-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>New Subscribers</th>
+        <th>Churned</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @daily_summary.reverse.each do |day_data| %>
+        <tr>
+          <td><strong><%= day_data[:date].strftime('%b %-d, %Y') %></strong></td>
+          <td>
+            <% if day_data[:new_subscribers] > 0 %>
+              <span class="positive">+<%= day_data[:new_subscribers] %></span>
+            <% else %>
+              <span>0</span>
+            <% end %>
+          </td>
+          <td>
+            <% if day_data[:churned_subscribers] > 0 %>
+              <span class="negative">-<%= day_data[:churned_subscribers] %></span>
+            <% else %>
+              <span>0</span>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+
+  <% @periods.each do |period| %>
+    <% period_short = period.inspect.gsub("days", "d").gsub("hours", "h").gsub(" ", "") %>
+    <% data = @period_data[period] %>
+
+    <h2 class="title">Last <%= period.inspect %></h2>
 
     <div class="card-grid">
       <div class="card">
-        <h2><%= Profitable.new_customers(in_the_last: period).to_readable %></h2>
+        <h2><%= data[:new_customers].to_readable %></h2>
         <p>new customers (<%= period_short %>)</p>
       </div>
       <div class="card">
-        <h2><%= Profitable.churned_customers(in_the_last: period).to_readable %></h2>
+        <h2><%= data[:churned_customers].to_readable %></h2>
         <p>churned customers (<%= period_short %>)</p>
       </div>
       <div class="card">
-        <h2><%= Profitable.churn(in_the_last: period).to_readable %></h2>
+        <h2><%= data[:churn].to_readable %></h2>
         <p>churn (<%= period_short %>)</p>
       </div>
 
       <div class="card">
-        <h2><%= Profitable.new_mrr(in_the_last: period).to_readable %></h2>
+        <h2><%= data[:new_mrr].to_readable %></h2>
         <p>new MRR (<%= period_short %>)</p>
       </div>
       <div class="card">
-        <h2><%= Profitable.churned_mrr(in_the_last: period).to_readable %></h2>
+        <h2><%= data[:churned_mrr].to_readable %></h2>
         <p>churned MRR (<%= period_short %>)</p>
       </div>
       <div class="card">
-        <h2><%= Profitable.mrr_growth(in_the_last: period).to_readable %></h2>
+        <h2><%= data[:mrr_growth].to_readable %></h2>
         <p>MRR growth (<%= period_short %>)</p>
       </div>
 
       <div class="card">
-        <h2><%= Profitable.revenue_in_period(in_the_last: period).to_readable %></h2>
+        <h2><%= data[:revenue].to_readable %></h2>
         <p>total revenue (<%= period_short %>)</p>
       </div>
 

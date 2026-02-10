@@ -643,6 +643,251 @@ class ProfitableTest < Minitest::Test
   end
 
   # ============================================================================
+  # MONTHLY SUMMARY
+  # ============================================================================
+
+  def test_monthly_summary_returns_array_of_hashes
+    result = Profitable.monthly_summary(months: 3)
+
+    assert_kind_of Array, result
+    assert_equal 3, result.length
+    result.each do |month_data|
+      assert_kind_of Hash, month_data
+      assert month_data.key?(:month)
+      assert month_data.key?(:month_date)
+      assert month_data.key?(:new_subscribers)
+      assert month_data.key?(:churned_subscribers)
+      assert month_data.key?(:net_subscribers)
+      assert month_data.key?(:new_mrr)
+      assert month_data.key?(:churned_mrr)
+      assert month_data.key?(:net_mrr)
+      assert month_data.key?(:churn_rate)
+    end
+  end
+
+  def test_monthly_summary_captures_new_subscribers
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month"
+    )
+
+    result = Profitable.monthly_summary(months: 1)
+    current_month = result.first
+
+    assert_equal 1, current_month[:new_subscribers]
+    assert_equal 9900, current_month[:new_mrr]
+  end
+
+  def test_monthly_summary_captures_churned_subscribers
+    churned_sub = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 5000,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_sub.update!(
+      created_at: 60.days.ago,
+      ends_at: 5.days.ago
+    )
+
+    result = Profitable.monthly_summary(months: 1)
+    current_month = result.first
+
+    assert_equal 1, current_month[:churned_subscribers]
+    assert_equal 5000, current_month[:churned_mrr]
+  end
+
+  def test_monthly_summary_calculates_net_correctly
+    # New subscriber this month
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month"
+    )
+
+    # Churned subscriber this month
+    churned_customer = create_customer(processor: "stripe")
+    churned_sub = create_stripe_subscription_v10(
+      customer: churned_customer,
+      unit_amount: 5000,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_sub.update!(
+      created_at: 60.days.ago,
+      ends_at: 5.days.ago
+    )
+
+    result = Profitable.monthly_summary(months: 1)
+    current_month = result.first
+
+    assert_equal 0, current_month[:net_subscribers]  # 1 new - 1 churned
+    assert_equal 4900, current_month[:net_mrr]        # 9900 - 5000
+  end
+
+  def test_monthly_summary_ordered_oldest_first
+    result = Profitable.monthly_summary(months: 3)
+
+    # Should be ordered oldest to newest
+    dates = result.map { |m| m[:month_date] }
+    assert_equal dates, dates.sort
+  end
+
+  # ============================================================================
+  # DAILY SUMMARY
+  # ============================================================================
+
+  def test_daily_summary_returns_array_of_hashes
+    result = Profitable.daily_summary(days: 7)
+
+    assert_kind_of Array, result
+    assert_equal 7, result.length
+    result.each do |day_data|
+      assert_kind_of Hash, day_data
+      assert day_data.key?(:date)
+      assert day_data.key?(:new_subscribers)
+      assert day_data.key?(:churned_subscribers)
+    end
+  end
+
+  def test_daily_summary_captures_new_subscriber_today
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month"
+    )
+
+    result = Profitable.daily_summary(days: 1)
+    today = result.first
+
+    assert_equal Date.current, today[:date]
+    assert_equal 1, today[:new_subscribers]
+  end
+
+  def test_daily_summary_captures_churned_subscriber
+    churned_sub = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 5000,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_sub.update!(
+      created_at: 60.days.ago,
+      ends_at: Time.current
+    )
+
+    result = Profitable.daily_summary(days: 1)
+    today = result.first
+
+    assert_equal 1, today[:churned_subscribers]
+  end
+
+  def test_daily_summary_ordered_oldest_first
+    result = Profitable.daily_summary(days: 7)
+
+    dates = result.map { |d| d[:date] }
+    assert_equal dates, dates.sort
+  end
+
+  # ============================================================================
+  # NEW SUBSCRIBERS EXCLUDES TRIALING
+  # ============================================================================
+
+  def test_new_subscribers_excludes_trialing_subscriptions
+    # Trialing subscription should NOT count as a new subscriber
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "trialing"
+    )
+
+    assert_equal 0, Profitable.new_subscribers(in_the_last: 30.days).to_i
+  end
+
+  def test_new_subscribers_includes_active_subscriptions
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+
+    assert_equal 1, Profitable.new_subscribers(in_the_last: 30.days).to_i
+  end
+
+  # ============================================================================
+  # PERIOD DATA
+  # ============================================================================
+
+  def test_period_data_returns_hash_with_all_keys
+    result = Profitable.period_data(in_the_last: 30.days)
+
+    assert_kind_of Hash, result
+    [:new_customers, :churned_customers, :churn, :new_mrr, :churned_mrr, :mrr_growth, :revenue].each do |key|
+      assert result.key?(key), "Missing key: #{key}"
+      assert_kind_of Profitable::NumericResult, result[key]
+    end
+  end
+
+  def test_period_data_matches_individual_methods
+    # Active subscription
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month"
+    )
+
+    # Churned subscription
+    churned_customer = create_customer(processor: "stripe")
+    churned_sub = create_stripe_subscription_v10(
+      customer: churned_customer,
+      unit_amount: 5000,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_sub.update!(created_at: 45.days.ago, ends_at: 10.days.ago)
+
+    # Charge for revenue
+    create_successful_charge(customer: @customer, amount: 9900)
+
+    period = 30.days
+    data = Profitable.period_data(in_the_last: period)
+
+    assert_equal Profitable.new_customers(in_the_last: period).to_i, data[:new_customers].to_i
+    assert_equal Profitable.churned_customers(in_the_last: period).to_i, data[:churned_customers].to_i
+    assert_equal Profitable.churn(in_the_last: period).to_f, data[:churn].to_f
+    assert_equal Profitable.new_mrr(in_the_last: period).to_i, data[:new_mrr].to_i
+    assert_equal Profitable.churned_mrr(in_the_last: period).to_i, data[:churned_mrr].to_i
+    assert_equal Profitable.mrr_growth(in_the_last: period).to_i, data[:mrr_growth].to_i
+    assert_equal Profitable.revenue_in_period(in_the_last: period).to_i, data[:revenue].to_i
+  end
+
+  def test_period_data_new_mrr_and_churned_mrr
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 10000,
+      interval: "month"
+    )
+
+    churned_customer = create_customer(processor: "stripe")
+    churned_sub = create_stripe_subscription_v10(
+      customer: churned_customer,
+      unit_amount: 5000,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_sub.update!(created_at: 45.days.ago, ends_at: 15.days.ago)
+
+    data = Profitable.period_data(in_the_last: 30.days)
+
+    assert_equal 10000, data[:new_mrr].to_i
+    assert_equal 5000, data[:churned_mrr].to_i
+    assert_equal 5000, data[:mrr_growth].to_i
+  end
+
+  # ============================================================================
   # REGRESSION: paid_charges backwards compatibility
   # ============================================================================
 
