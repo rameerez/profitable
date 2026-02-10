@@ -1,5 +1,13 @@
 # `profitable`
 
+## [0.4.0] - 2026-02-10
+- Add monthly summary (12mo) and daily summary (30d) tables to dashboard
+- Add `period_data` method for efficient batch computation of period metrics
+- Fix `new_mrr` counting incomplete/unpaid subscriptions (now only counts active)
+- Fix `new_subscribers` not filtering out trialing/paused subscriptions
+- DRY up period methods (churn, churned_customers, new_mrr, etc.) via `_in_period` delegation
+- Optimize dashboard from ~176 to 38 queries (batch summary queries, precompute in controller)
+
 ## [0.3.0] - 2026-01-01
 - Add Pay v10+ support, comprehensive Minitest test suite, and 16 critical bugfixes re: wrong calculations
 
