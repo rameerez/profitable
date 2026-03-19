@@ -9,7 +9,20 @@ module Profitable
     def self.calculate
       total_mrr = 0
       subscriptions = Pay::Subscription
-        .where.not(status: Profitable::CURRENT_NON_BILLABLE_SUBSCRIPTION_STATUSES)
+        .where.not(status: Profitable::NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
+        .where(
+          "(pay_subscriptions.status NOT IN (?) OR (pay_subscriptions.trial_ends_at IS NOT NULL AND pay_subscriptions.trial_ends_at <= ?))",
+          Profitable::TRIAL_SUBSCRIPTION_STATUSES,
+          Time.current
+        )
+        .where(
+          "(pay_subscriptions.status NOT IN (?) OR pay_subscriptions.ends_at IS NOT NULL)",
+          Profitable::CHURNED_STATUSES
+        )
+        .where(
+          "(pay_subscriptions.status != ? OR pay_subscriptions.pause_starts_at IS NOT NULL)",
+          'paused'
+        )
         .where('COALESCE(pay_subscriptions.trial_ends_at, pay_subscriptions.created_at) <= ?', Time.current)
         .where('pay_subscriptions.pause_starts_at IS NULL OR pay_subscriptions.pause_starts_at > ?', Time.current)
         .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', Time.current)

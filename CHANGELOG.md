@@ -7,6 +7,9 @@
 - Make subscriber and MRR metrics distinguish between current billable subscriptions and historical period events
 - Count `new_customers` from first monetization date rather than signup date
 - Count `new_subscribers` / `new_mrr` from when a subscription becomes billable, not when a free trial starts
+- Handle additional Pay status variants like `on_trial`, `cancelled`, and `deleted`
+- Keep grace-period subscriptions billable until `ends_at`
+- Exclude metered Stripe items from fixed run-rate MRR calculations
 - Surface TTM revenue in the built-in dashboard
 
 ## [0.4.0] - 2026-02-10

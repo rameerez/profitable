@@ -84,6 +84,18 @@ class MrrCalculatorTest < Minitest::Test
     assert_equal 0, Profitable::MrrCalculator.calculate
   end
 
+  def test_calculate_excludes_on_trial_subscriptions
+    subscription = create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "on_trial"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable::MrrCalculator.calculate
+  end
+
   def test_calculate_excludes_active_subscriptions_still_on_trial
     subscription = create_stripe_subscription_v10(
       customer: @stripe_customer,
@@ -163,6 +175,30 @@ class MrrCalculatorTest < Minitest::Test
     assert_equal 9900, Profitable::MrrCalculator.calculate
   end
 
+  def test_calculate_includes_canceled_subscription_still_in_grace_period
+    subscription = create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    subscription.update!(ends_at: 5.days.from_now)
+
+    assert_equal 9900, Profitable::MrrCalculator.calculate
+  end
+
+  def test_calculate_includes_cancelled_subscription_still_in_grace_period
+    subscription = create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "cancelled"
+    )
+    subscription.update!(ends_at: 5.days.from_now)
+
+    assert_equal 9900, Profitable::MrrCalculator.calculate
+  end
+
   def test_calculate_includes_active_subscriptions_until_future_pause_or_end_date
     pausing_subscription = create_stripe_subscription_v10(
       customer: @stripe_customer,
@@ -223,6 +259,30 @@ class MrrCalculatorTest < Minitest::Test
     )
 
     assert_equal 9900, Profitable::MrrCalculator.process_subscription(subscription)
+  end
+
+  def test_process_subscription_ignores_metered_stripe_items
+    subscription = create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 5000,
+      interval: "month",
+      usage_type: "metered"
+    )
+
+    assert_equal 0, Profitable::MrrCalculator.process_subscription(subscription)
+  end
+
+  def test_process_subscription_ignores_metered_items_but_keeps_licensed_items
+    subscription = create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 5000,
+      interval: "month",
+      additional_items: [
+        { unit_amount: 2000, interval: "month", usage_type: "metered" }
+      ]
+    )
+
+    assert_equal 5000, Profitable::MrrCalculator.process_subscription(subscription)
   end
 
   def test_process_subscription_routes_to_braintree_processor

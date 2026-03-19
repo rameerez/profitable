@@ -28,6 +28,10 @@ Then run `bundle install`.
 
 Provided you have a valid [`pay`](https://github.com/pay-rails/pay) installation (`Pay::Customer`, `Pay::Subscription`, `Pay::Charge`, etc.) everything is already set up and you can just start using [`Profitable` methods](#main-profitable-methods) right away.
 
+Current MRR processor coverage is verified for `stripe`, `braintree`, `paddle_billing`, and `paddle_classic`.
+
+For Stripe, metered subscription items are intentionally excluded from fixed run-rate metrics like `mrr`, `arr`, `new_mrr`, and `churned_mrr`.
+
 ## Mount the `/profitable` dashboard
 
 `profitable` also provides a simple dashboard to see your main business metrics.

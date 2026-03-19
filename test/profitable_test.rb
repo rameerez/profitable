@@ -46,6 +46,18 @@ class ProfitableTest < Minitest::Test
     assert_equal 0, Profitable.mrr.to_i
   end
 
+  def test_mrr_excludes_on_trial_status_until_trial_ends
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "on_trial"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable.mrr.to_i
+  end
+
   def test_mrr_includes_past_due_subscriptions
     create_stripe_subscription_v10(
       customer: @customer,
@@ -53,6 +65,18 @@ class ProfitableTest < Minitest::Test
       interval: "month",
       status: "past_due"
     )
+
+    assert_equal 9900, Profitable.mrr.to_i
+  end
+
+  def test_mrr_includes_cancel_at_period_end_subscriptions_still_in_grace_period
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    subscription.update!(ends_at: 5.days.from_now)
 
     assert_equal 9900, Profitable.mrr.to_i
   end
@@ -578,6 +602,26 @@ class ProfitableTest < Minitest::Test
     assert_equal 1, Profitable.total_subscribers.to_i
   end
 
+  def test_total_subscribers_includes_cancelled_and_deleted_subscriptions_that_became_billable
+    cancelled_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "cancelled"
+    )
+    cancelled_subscription.update!(created_at: 45.days.ago, trial_ends_at: 30.days.ago, ends_at: 5.days.ago)
+
+    deleted_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month",
+      status: "deleted"
+    )
+    deleted_subscription.update!(created_at: 45.days.ago, ends_at: 5.days.ago)
+
+    assert_equal 2, Profitable.total_subscribers.to_i
+  end
+
   def test_active_subscribers_counts_only_active_subscriptions
     # Active subscription
     create_stripe_subscription_v10(
@@ -616,6 +660,18 @@ class ProfitableTest < Minitest::Test
     scheduled_end.update!(ends_at: 5.days.from_now)
 
     assert_equal 2, Profitable.active_subscribers.to_i
+  end
+
+  def test_active_subscribers_includes_cancelled_subscriptions_still_in_grace_period
+    cancelled_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "cancelled"
+    )
+    cancelled_subscription.update!(ends_at: 5.days.from_now)
+
+    assert_equal 1, Profitable.active_subscribers.to_i
   end
 
   # ============================================================================
@@ -718,6 +774,18 @@ class ProfitableTest < Minitest::Test
     assert_equal 0, Profitable.new_subscribers(in_the_last: 30.days).to_i
   end
 
+  def test_new_subscribers_excludes_on_trial_subscriptions_until_trial_ends
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "on_trial"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable.new_subscribers(in_the_last: 30.days).to_i
+  end
+
   # ============================================================================
   # CHURNED CUSTOMERS
   # ============================================================================
@@ -742,6 +810,28 @@ class ProfitableTest < Minitest::Test
     churned_sub.update!(ends_at: 10.days.ago)
 
     assert_equal 1, Profitable.churned_customers(in_the_last: 30.days).to_i
+  end
+
+  def test_churned_customers_counts_cancelled_and_deleted_status_aliases
+    cancelled_customer = create_customer(processor: "stripe")
+    cancelled_subscription = create_stripe_subscription_v10(
+      customer: cancelled_customer,
+      unit_amount: 4900,
+      interval: "month",
+      status: "cancelled"
+    )
+    cancelled_subscription.update!(created_at: 45.days.ago, ends_at: 10.days.ago)
+
+    deleted_customer = create_customer(processor: "stripe")
+    deleted_subscription = create_stripe_subscription_v10(
+      customer: deleted_customer,
+      unit_amount: 3900,
+      interval: "month",
+      status: "deleted"
+    )
+    deleted_subscription.update!(created_at: 45.days.ago, ends_at: 8.days.ago)
+
+    assert_equal 2, Profitable.churned_customers(in_the_last: 30.days).to_i
   end
 
   # ============================================================================
@@ -823,6 +913,18 @@ class ProfitableTest < Minitest::Test
     assert_equal 0, Profitable.new_mrr(in_the_last: 30.days).to_i
   end
 
+  def test_new_mrr_excludes_on_trial_subscriptions_until_trial_ends
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "on_trial"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable.new_mrr(in_the_last: 30.days).to_i
+  end
+
   # ============================================================================
   # CHURNED MRR
   # ============================================================================
@@ -842,6 +944,26 @@ class ProfitableTest < Minitest::Test
 
     # REGRESSION TEST: Should be full MRR, not prorated
     assert_equal 9900, Profitable.churned_mrr(in_the_last: 30.days).to_i
+  end
+
+  def test_churned_mrr_counts_cancelled_and_deleted_status_aliases
+    cancelled_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 4900,
+      interval: "month",
+      status: "cancelled"
+    )
+    cancelled_subscription.update!(created_at: 45.days.ago, ends_at: 10.days.ago)
+
+    deleted_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 3900,
+      interval: "month",
+      status: "deleted"
+    )
+    deleted_subscription.update!(created_at: 45.days.ago, ends_at: 8.days.ago)
+
+    assert_equal 8800, Profitable.churned_mrr(in_the_last: 30.days).to_i
   end
 
   # ============================================================================

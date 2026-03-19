@@ -17,6 +17,7 @@ module Profitable
         subscription_items.each do |item|
           price_data = item['price'] || item
           next if price_data.nil?
+          next if price_data.dig('recurring', 'usage_type') == 'metered'
 
           amount = price_data['unit_amount']
           next if amount.nil?

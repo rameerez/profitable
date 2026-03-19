@@ -134,9 +134,9 @@ require "active_support/core_ext/numeric/conversions"
 # mirror the Profitable module here.
 module Profitable
   # Subscription status constants (at module level so MrrCalculator can reference them)
-  CHURNED_STATUSES  = ['canceled', 'ended'].freeze
+  TRIAL_SUBSCRIPTION_STATUSES = ['trialing', 'on_trial'].freeze
+  CHURNED_STATUSES  = ['canceled', 'cancelled', 'ended', 'deleted'].freeze
   NEVER_BILLABLE_SUBSCRIPTION_STATUSES = ['incomplete', 'incomplete_expired', 'unpaid'].freeze
-  CURRENT_NON_BILLABLE_SUBSCRIPTION_STATUSES = (CHURNED_STATUSES + ['trialing', 'paused'] + NEVER_BILLABLE_SUBSCRIPTION_STATUSES).freeze
 
   class << self
     include ActionView::Helpers::NumberHelper
@@ -297,22 +297,30 @@ module Profitable
     end
 
     def subscription_is_billable_by(date, scope = Pay::Subscription.all)
-      scope.where(
-        "(pay_subscriptions.status != ? OR (pay_subscriptions.trial_ends_at IS NOT NULL AND pay_subscriptions.trial_ends_at <= ?))",
-        'trialing',
-        date
-      )
+      scope
+        .where.not(status: NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
+        .where(
+          "(pay_subscriptions.status NOT IN (?) OR (pay_subscriptions.trial_ends_at IS NOT NULL AND pay_subscriptions.trial_ends_at <= ?))",
+          TRIAL_SUBSCRIPTION_STATUSES,
+          date
+        )
+        .where(
+          "(pay_subscriptions.status NOT IN (?) OR pay_subscriptions.ends_at IS NOT NULL)",
+          CHURNED_STATUSES
+        )
+        .where(
+          "(pay_subscriptions.status != ? OR pay_subscriptions.pause_starts_at IS NOT NULL)",
+          'paused'
+        )
     end
 
     def ever_billable_subscription_scope(scope = Pay::Subscription.all)
       subscription_is_billable_by(Time.current, scope)
-        .where.not(status: NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
         .where("#{subscription_became_billable_at_sql} <= ?", Time.current)
     end
 
     def billable_subscription_scope_at(date, scope = Pay::Subscription.all)
       subscription_is_billable_by(date, scope)
-        .where.not(status: NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
         .where("#{subscription_became_billable_at_sql} <= ?", date)
         .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', date)
         .where('pay_subscriptions.pause_starts_at IS NULL OR pay_subscriptions.pause_starts_at > ?', date)
@@ -320,12 +328,10 @@ module Profitable
 
     def current_billable_subscription_scope(scope = Pay::Subscription.all)
       billable_subscription_scope_at(Time.current, scope)
-        .where.not(status: CURRENT_NON_BILLABLE_SUBSCRIPTION_STATUSES)
     end
 
     def billable_subscription_events_in_period(period_start, period_end, scope = Pay::Subscription.all)
       subscription_is_billable_by(period_end, scope)
-        .where.not(status: NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
         .where("#{subscription_became_billable_at_sql} BETWEEN ? AND ?", period_start, period_end)
     end
 
@@ -719,7 +725,7 @@ end
 # Test helper methods
 module ProfitableTestHelpers
   # Creates a Stripe subscription with the v10+ object column structure
-  def create_stripe_subscription_v10(customer:, unit_amount:, interval: "month", interval_count: 1, quantity: 1, status: "active", additional_items: [])
+  def create_stripe_subscription_v10(customer:, unit_amount:, interval: "month", interval_count: 1, quantity: 1, status: "active", usage_type: nil, additional_items: [])
     items_data = [
       {
         "id" => "si_#{SecureRandom.hex(8)}",
@@ -729,7 +735,8 @@ module ProfitableTestHelpers
           "unit_amount" => unit_amount,
           "recurring" => {
             "interval" => interval,
-            "interval_count" => interval_count
+            "interval_count" => interval_count,
+            "usage_type" => usage_type
           }
         }
       }
@@ -744,7 +751,8 @@ module ProfitableTestHelpers
           "unit_amount" => item[:unit_amount],
           "recurring" => {
             "interval" => item[:interval] || interval,
-            "interval_count" => item[:interval_count] || interval_count
+            "interval_count" => item[:interval_count] || interval_count,
+            "usage_type" => item[:usage_type]
           }
         }
       }
