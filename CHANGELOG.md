@@ -1,6 +1,6 @@
 # `profitable`
 
-## [Unreleased]
+## [0.5.0] - 2026-03-19
 - Add `Profitable.ttm_revenue` for trailing twelve-month revenue
 - Add `Profitable.ttm` as a founder-friendly alias for `ttm_revenue`
 - Add `Profitable.revenue_run_rate`, `estimated_arr_valuation`, `estimated_ttm_revenue_valuation`, and `estimated_revenue_run_rate_valuation`
@@ -12,6 +12,7 @@
 - Keep grace-period subscriptions billable until `ends_at`
 - Exclude metered Stripe items from fixed run-rate MRR calculations
 - Surface TTM revenue in the built-in dashboard
+- Extract shared metric logic to `lib/profitable/metrics.rb` for cleaner architecture
 
 ## [0.4.0] - 2026-02-10
 - Add monthly summary (12mo) and daily summary (30d) tables to dashboard
