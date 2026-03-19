@@ -74,7 +74,7 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 - `Profitable.arr`: Annual Recurring Revenue (ARR), calculated as current `mrr * 12`, not trailing revenue
 - `Profitable.ttm`: Founder-friendly shorthand alias for `ttm_revenue`
 - `Profitable.ttm_revenue`: Trailing twelve-month revenue, net of refunds when `amount_refunded` is present
-- `Profitable.revenue_run_rate(in_the_last: 30.days)`: Recent revenue annualized (useful for secondary TrustMRR-style revenue multiples)
+- `Profitable.revenue_run_rate(in_the_last: 30.days)`: Recent revenue annualized (useful for TrustMRR-style revenue multiples)
 - `Profitable.all_time_revenue`: Net revenue since launch
 - `Profitable.revenue_in_period(in_the_last: 30.days)`: Net revenue (recurring and non-recurring) in the specified period
 - `Profitable.recurring_revenue_in_period(in_the_last: 30.days)`: Only recurring revenue in the specified period
@@ -83,7 +83,7 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 - `Profitable.churned_mrr(in_the_last: 30.days)`: MRR lost due to churn in the specified period
 - `Profitable.average_revenue_per_customer`: Average revenue per customer (ARPC)
 - `Profitable.lifetime_value`: Estimated customer lifetime value (LTV)
-- `Profitable.estimated_valuation(at: "3x")`: Backwards-compatible ARR-based valuation heuristic
+- `Profitable.estimated_valuation(at: "3x")`: ARR-based valuation heuristic
 - `Profitable.estimated_arr_valuation(at: "3x")`: Explicit ARR-based valuation heuristic
 - `Profitable.estimated_ttm_revenue_valuation(at: "2x")`: TTM revenue-based valuation heuristic
 - `Profitable.estimated_revenue_run_rate_valuation(at: "2x", in_the_last: 30.days)`: Recent revenue run-rate valuation heuristic
@@ -136,7 +136,7 @@ Profitable.ttm_revenue.to_readable # => "$123,456"
 # Founder-friendly shorthand for trailing twelve-month revenue
 Profitable.ttm.to_readable # => "$123,456"
 
-# Get recent revenue annualized (useful for secondary TrustMRR-style revenue multiples)
+# Get recent revenue annualized (useful for TrustMRR-style revenue multiples)
 Profitable.revenue_run_rate(in_the_last: 30.days).to_readable # => "$96,000"
 
 # `estimated_valuation` remains as a backwards-compatible alias of `estimated_arr_valuation`
@@ -173,21 +173,21 @@ Revenue methods are net of refunds when `amount_refunded` is present on `pay_cha
 - `mrr_growth_rate`: This calculation compares the MRR at the start and end of the specified period. It assumes a linear growth rate over the period, which may not reflect short-term fluctuations. For more accurate results, consider using shorter periods or implementing a more sophisticated growth calculation method if needed.
 - `time_to_next_mrr_milestone`: This estimation is based on the current MRR and the recent growth rate. It assumes a constant growth rate, which may not reflect real-world conditions. The calculation may be inaccurate for very new businesses or those with irregular growth patterns.
 
-## Metric Guide: TTM, Revenue, Profit, ARR, and MRR
+## Metric guide: TTM, Revenue, Profit, ARR, and MRR
 
-`profitable` now exposes both standard recurring revenue metrics (`MRR`, `ARR`) and trailing actuals (`TTM revenue`) on purpose.
+`profitable` exposes both standard recurring revenue metrics (`MRR`, `ARR`) and trailing actuals (`TTM revenue`) on purpose.
 
 These metrics are related, but they are not interchangeable:
 
 | Metric | What it means | Best for | What it is **not** |
 | --- | --- | --- | --- |
-| `MRR` | Monthly Recurring Revenue from subscriptions that are billable right now | Operating cadence, near-term momentum, tracking upgrades/downgrades | Monthly cash collected from all sources |
-| `ARR` | Annual Recurring Revenue, calculated as the current recurring base annualized | Forecasting recurring scale, board/investor reporting, recurring-revenue quality | Historical last-12-month revenue |
-| `MRR * 12` | Simple annualization of the current monthly recurring base | Fast ARR approximation when the base is normalized monthly | TTM revenue or TTM profit |
-| `TTM revenue` | Actual revenue collected over the last 12 months | Buyer-facing historical actuals, smoothing seasonality, sanity-checking ARR | Forward recurring run-rate |
-| `TTM profit` | Actual profit over the last 12 months | Small bootstrapped SaaS exits, ROI-minded buyers, earnings-based multiples | Something `profitable` can derive from `pay` alone |
+| `MRR` | Monthly Recurring Revenue from subscriptions that are billable right now | Operating cadence, near-term momentum, tracking upgrades/downgrades | It's **not** monthly cash collected from all sources |
+| `ARR` | Annual Recurring Revenue, calculated as the current recurring base annualized | Forecasting recurring scale, board/investor reporting, recurring-revenue quality | It's **not** a historical last-12-month revenue |
+| `MRR * 12` | Simple annualization of the current monthly recurring base | Fast ARR approximation when the base is normalized monthly | It's **not** TTM revenue or TTM profit |
+| `TTM revenue` | Actual revenue collected over the last 12 months | Buyer-facing historical actuals, smoothing seasonality, sanity-checking ARR | It's **not** a forward recurring run-rate |
+| `TTM profit` | Actual profit over the last 12 months | Small bootstrapped SaaS exits, ROI-minded buyers, earnings-based multiples | It's **not** something `profitable` can derive from `pay` alone |
 
-### The Distinction That Matters
+### The distinction
 
 - `ARR` is a run-rate metric. Stripe describes it as revenue you "expect to earn in a year" and notes that `ARR = MRR × 12`.
 - `TTM` is a trailing metric. CFI defines it as the "most recent 12-month period" and uses it for reported actuals such as revenue and EBITDA.
@@ -198,24 +198,23 @@ These metrics are related, but they are not interchangeable:
 
 In other words:
 
-- `ARR` answers: "What is my current recurring run-rate?"
+- `ARR` answers: "What is my current recurring run-rate? What do I expect to earn in a year?"
 - `TTM revenue` answers: "What did I actually collect over the last year?"
-- `TTM profit` answers: "What did I actually keep over the last year?"
 
-### What `profitable` Computes
+### What `profitable` calculates
 
 - `Profitable.mrr`: Monthly Recurring Revenue (MRR) from subscriptions that are billable right now
 - `Profitable.arr`: Annual Recurring Revenue (ARR), calculated from current MRR
 - `Profitable.ttm`: shorthand alias for `ttm_revenue`
 - `Profitable.ttm_revenue`: trailing 12-month revenue, net of refunds when `amount_refunded` is present
 - `Profitable.revenue_run_rate`: recent revenue annualized to a yearly run-rate
-- `Profitable.estimated_valuation`: a backwards-compatible ARR-multiple heuristic
+- `Profitable.estimated_valuation`: ARR-multiple heuristic
 - `Profitable.estimated_ttm_revenue_valuation`: TTM revenue heuristic
 - `Profitable.estimated_revenue_run_rate_valuation`: recent revenue run-rate heuristic
 
 `profitable` does **not** calculate `TTM profit`, because payroll, contractor spend, hosting, support, software tools, taxes, and owner add-backs do not live inside `pay`.
 
-### Which Metric Matters in Which Situation?
+### Which metric matters in which situation?
 
 - If you're operating the business week to week: `MRR` is usually the best pulse metric.
 - If you want to understand your current subscription run-rate: `ARR` is the right metric.
@@ -223,17 +222,9 @@ In other words:
 - If your business has meaningful one-time revenue, services, setup fees, or seasonal swings: `TTM revenue` matters more than `ARR`.
 - If you are speaking to serious SaaS buyers about revenue quality: pair `ARR` with churn, growth, concentration, and margins.
 
-### Source Hierarchy
-
-This README treats `Acquire.com` as the primary valuation reference for smaller SaaS exits.
-
-`TrustMRR` is still useful, but as a secondary reference for how very small SaaS listings are packaged, normalized, and displayed in-market.
-
-### What Current Market Sources Say
+### What the market says
 
 These are short excerpts from current market and finance sources, followed by why they matter for `profitable`.
-
-Primary valuation reference:
 
 - [Acquire.com Biannual Multiples Report (Jan 2026)](https://blog.acquire.com/acquire-com-biannual-acquisition-multiples-report-jan-2026/): "anchor valuation on profit"
   Acquire says the January 2026 report is focused "entirely on profit multiples," which is highly relevant for smaller bootstrapped SaaS exits.
@@ -263,8 +254,6 @@ Primary valuation reference:
 - [Software Equity Group, 3Q25 SaaS M&A](https://softwareequity.com/blog/saas-ma-deal-volume-and-valuations): "5.4x"
   SEG reported average SaaS M&A valuations of `5.4x` revenue in 3Q25, which is useful context for larger, more institutional software transactions.
 
-Secondary listing-practice reference:
-
 - [TrustMRR live listing example](https://trustmrr.com/startup/appalchemy): "$164,819 TTM revenue"
   Live marketplaces increasingly show `TTM revenue`, `TTM profit`, and `ARR` side by side, which matches how buyers actually compare deals.
 
@@ -277,7 +266,7 @@ Secondary listing-practice reference:
 - [TrustMRR FAQ](https://trustmrr.com/faq): "profit margin for the last 30 days"
   TrustMRR asks sellers to provide profit margin separately when listing for sale, which reinforces that profit-based heuristics need cost inputs outside the payment provider.
 
-### How to Use These Metrics Responsibly
+### How to use these metrics responsibly
 
 - `estimated_valuation` is intentionally simple. It is kept as a backwards-compatible ARR heuristic. Prefer `estimated_arr_valuation` in new code when you want the denominator to be explicit.
 - Do not compare an ARR multiple and a TTM profit multiple as if they were the same kind of number. They are based on different denominators.
@@ -285,7 +274,7 @@ Secondary listing-practice reference:
 - If two businesses both have `$300k ARR`, the one with lower churn, better margins, lower concentration, and cleaner growth usually deserves the higher multiple.
 - If two businesses both have `$300k TTM revenue`, the one with stronger profit and more recurring revenue usually deserves the higher price.
 
-### Typical Multiples by SaaS Type and Size
+### Typical multiples by SaaS type and size
 
 These are rough, source-backed heuristics. They are not interchangeable.
 
@@ -294,7 +283,7 @@ These are rough, source-backed heuristics. They are not interchangeable.
 | Smaller profitable SaaS on Acquire.com (2024-2025 confirmed transactions) | `TTM profit` | `3.9x` median | [Acquire.com Jan 2026 report](https://blog.acquire.com/acquire-com-biannual-acquisition-multiples-report-jan-2026/) |
 | Micro-SaaS under `$100k` TTM revenue | `TTM profit` | `3.55x` average | [Acquire.com webinar recap](https://blog.acquire.com/the-secrets-behind-2024s-biggest-exits-webinar-recap/) |
 | Micro-SaaS with `$100k-$1M` TTM revenue | `TTM profit` | `4.35x` average | [Acquire.com webinar recap](https://blog.acquire.com/the-secrets-behind-2024s-biggest-exits-webinar-recap/) |
-| Secondary TrustMRR marketplace listings | `Annualized last 30d revenue` | often roughly `0.6x-5.5x` ask multiples | [TrustMRR homepage snapshot](https://trustmrr.com/) |
+| TrustMRR marketplace listings | `Annualized last 30d revenue` | often roughly `0.6x-5.5x` ask multiples | [TrustMRR homepage snapshot](https://trustmrr.com/) |
 | Mid-6-figure ARR SaaS | `TTM revenue` | `2x-4x` revenue | [Acquire.com founder-driven acquisition recap](https://blog.acquire.com/how-founders-can-drive-their-own-acquisition-process-webinar-recap/) |
 | Older Acquire.com SaaS baseline | `TTM revenue` or `TTM profit` | `2-3x revenue` or `5x profit` | [Acquire.com 7-8 figures webinar recap](https://blog.acquire.com/how-to-sell-your-company-playbook-webinar/) |
 | Strong recurring SaaS with high growth and retention | `ARR` | `5x-15x ARR` | [Acquire.com SaaS valuation multiples guide](https://blog.acquire.com/saas-valuation-multiples/) |
@@ -306,7 +295,7 @@ How to read this table:
 - TrustMRR listing multiples are a secondary comparison set: they are based on recent revenue run-rate, specifically `last 30 days revenue × 12`.
 - Higher-quality SaaS with real scale, low churn, and strong growth is more likely to be discussed in `ARR` terms.
 
-### Rough Valuation Formulas from `profitable`
+### Rough valuation formulas from `profitable`
 
 You can only multiply a metric by a multiple if the denominator matches.
 
@@ -344,7 +333,7 @@ Use this when:
 
 #### 2b. Recent revenue run-rate multiple
 
-This is the closest match to secondary TrustMRR-style marketplace multiples:
+This is the closest match to TrustMRR-style marketplace multiples:
 
 ```ruby
 # Default: annualized last-30-days revenue
@@ -375,31 +364,6 @@ Use this when:
 - the business is a smaller profitable micro-SaaS,
 - the buyer is focused on ROI and cash flow,
 - or you're comparing yourself to Acquire.com-style marketplace comps.
-
-#### A Practical Rule
-
-If you are unsure which denominator the buyer is using, ask explicitly:
-
-- "Are you thinking in TTM profit, TTM revenue, or ARR?"
-
-That one question avoids a huge amount of confusion.
-
-### RailsFast-Based Businesses
-
-There is no special published "RailsFast multiple."
-
-Inference from the sources above: a RailsFast-based SaaS should generally be valued like any other SaaS with similar:
-
-- TTM revenue
-- TTM profit
-- ARR / MRR quality
-- churn and retention
-- growth rate
-- customer concentration
-- margins
-- transferability and documentation
-
-The stack is usually secondary to business quality. What the stack can do indirectly is improve margins, speed of execution, and transferability, which can help the business earn a better multiple over time.
 
 ## Development
 
