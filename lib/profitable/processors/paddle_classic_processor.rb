@@ -8,6 +8,7 @@ module Profitable
         amount = data['recurring_price']
         return 0 if amount.nil?
 
+        # Paddle Classic payloads may expose string amounts; coerce before quantity math.
         quantity = subscription.quantity || 1
         interval = data['recurring_interval']
         interval_count = 1 # Paddle Classic doesn't have interval_count

@@ -18,6 +18,7 @@ module Profitable
           amount = price_data.dig('unit_price', 'amount')
           next if amount.nil?
 
+          # Paddle can also serialize amounts as strings; coerce before applying quantity.
           item_quantity = item['quantity'] || 1
           interval = price_data.dig('billing_cycle', 'interval')
           interval_count = price_data.dig('billing_cycle', 'frequency')

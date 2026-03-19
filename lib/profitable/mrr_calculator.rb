@@ -8,6 +8,10 @@ module Profitable
   class MrrCalculator
     def self.calculate
       total_mrr = 0
+
+      # Do not use Pay::Subscription.active here.
+      # Pay's active scope is designed for entitlement/access checks and can include
+      # free-trial access. MRR needs subscriptions that are billable right now.
       subscriptions = Pay::Subscription
         .where.not(status: Profitable::NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
         .where(
@@ -65,6 +69,8 @@ module Profitable
     end
 
     def self.processor_for(processor_name)
+      # MRR parsing is only implemented for processors with explicit adapters below.
+      # Unknown processors safely fall back to Base and contribute zero until supported.
       case processor_name
       when 'stripe'
         Processors::StripeProcessor

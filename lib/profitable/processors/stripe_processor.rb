@@ -17,6 +17,9 @@ module Profitable
         subscription_items.each do |item|
           price_data = item['price'] || item
           next if price_data.nil?
+
+          # Metered items are usage-based, so they do not have a fixed run-rate that
+          # belongs in MRR/ARR style metrics. Keep only licensed recurring items here.
           next if price_data.dig('recurring', 'usage_type') == 'metered'
 
           amount = price_data['unit_amount']

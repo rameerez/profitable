@@ -13,7 +13,9 @@ require "active_support/core_ext/numeric/conversions"
 require "action_view"
 
 module Profitable
-  # Subscription status constants (at module level so MrrCalculator can reference them)
+  # Pay exposes some processor-specific status variants beyond the core generic list.
+  # We normalize them into business-meaningful groups so current-state metrics,
+  # historical event metrics, and churn denominators all behave consistently.
   TRIAL_SUBSCRIPTION_STATUSES = ['trialing', 'on_trial'].freeze
   CHURNED_STATUSES  = ['canceled', 'cancelled', 'ended', 'deleted'].freeze
   NEVER_BILLABLE_SUBSCRIPTION_STATUSES = ['incomplete', 'incomplete_expired', 'unpaid'].freeze
@@ -193,10 +195,16 @@ module Profitable
         .joins(:customer)
     end
 
+    # Business semantics: a subscription becomes "real" for subscriber / new MRR
+    # reporting when billing starts. For trialless subscriptions that is created_at;
+    # for trials it is trial_ends_at.
     def subscription_became_billable_at_sql
       'COALESCE(pay_subscriptions.trial_ends_at, pay_subscriptions.created_at)'
     end
 
+    # We intentionally do not reuse Pay::Subscription.active here.
+    # Pay's active scope is access-oriented and can include free-trial access,
+    # while profitable needs billable subscription semantics for metrics.
     def subscription_is_billable_by(date, scope = Pay::Subscription.all)
       scope
         .where.not(status: NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
@@ -215,11 +223,15 @@ module Profitable
         )
     end
 
+    # Any subscription that has ever crossed into a paid/billable state,
+    # even if it later churned. This is used for "ever" style counts.
     def ever_billable_subscription_scope(scope = Pay::Subscription.all)
       subscription_is_billable_by(Time.current, scope)
         .where("#{subscription_became_billable_at_sql} <= ?", Time.current)
     end
 
+    # Subscriptions that were billable at a historical point in time.
+    # This powers MRR snapshots, churn denominators, and other period math.
     def billable_subscription_scope_at(date, scope = Pay::Subscription.all)
       subscription_is_billable_by(date, scope)
         .where("#{subscription_became_billable_at_sql} <= ?", date)
@@ -227,10 +239,14 @@ module Profitable
         .where('pay_subscriptions.pause_starts_at IS NULL OR pay_subscriptions.pause_starts_at > ?', date)
     end
 
+    # Current billable subscriptions. A future ends_at or future pause start means
+    # the subscription is still billable today and should remain in MRR / ARR.
     def current_billable_subscription_scope(scope = Pay::Subscription.all)
       billable_subscription_scope_at(Time.current, scope)
     end
 
+    # Historical "new subscriber" / "new MRR" event window.
+    # The event date is when billing starts, not when the subscription record is created.
     def billable_subscription_events_in_period(period_start, period_end, scope = Pay::Subscription.all)
       subscription_is_billable_by(period_end, scope)
         .where("#{subscription_became_billable_at_sql} BETWEEN ? AND ?", period_start, period_end)
@@ -371,6 +387,9 @@ module Profitable
     end
 
     def actual_customers
+      # A "customer" here means a monetized customer, not just an account record.
+      # We therefore union paid one-off/charge customers with customers whose
+      # subscriptions have reached a billable state.
       customers_with_paid_charges = Pay::Customer.where(id: paid_charges.select(:customer_id))
       customers_with_billable_subscriptions = Pay::Customer.where(id: ever_billable_subscription_scope.select(:customer_id))
 
@@ -381,6 +400,9 @@ module Profitable
       period_start = period.ago
       period_end = Time.current
 
+      # "New customer" is defined by first monetization date.
+      # We intentionally do not use Pay::Customer.created_at because a user might
+      # sign up long before they ever pay or convert from trial.
       first_charge_dates = paid_charges.group(:customer_id).minimum(:created_at)
       first_subscription_dates = ever_billable_subscription_scope
         .group(:customer_id)
@@ -451,6 +473,8 @@ module Profitable
       period_start = period.ago
       period_end = Time.current
 
+      # Keep these values delegated to the same underlying helpers used by the
+      # public methods so the dashboard and direct API calls stay in lockstep.
       new_customers_count = calculate_new_customers(period)
       churned_count = calculate_churned_subscribers_in_period(period_start, period_end)
       new_mrr_val = calculate_new_mrr_in_period(period_start, period_end)
@@ -479,7 +503,9 @@ module Profitable
       overall_start = (months_count - 1).months.ago.beginning_of_month
       overall_end = Time.current.end_of_month
 
-      # Bulk load all data for the full range
+      # Bulk load all data for the full range, then group in Ruby.
+      # This keeps the dashboard query count low while preserving the same
+      # billable-date semantics used by the single-metric helpers.
       new_sub_records = Pay::Subscription
         .merge(billable_subscription_events_in_period(overall_start, overall_end))
         .pluck(:customer_id, Arel.sql(subscription_became_billable_at_sql))
@@ -503,7 +529,8 @@ module Profitable
         .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', overall_start)
         .pluck(:customer_id, Arel.sql(subscription_became_billable_at_sql), :ends_at)
 
-      # Group by month in Ruby
+      # Group by month in Ruby using billable-at and ends_at as the event dates,
+      # rather than raw subscription created_at.
       summary = []
       (months_count - 1).downto(0) do |months_ago|
         month_start = months_ago.months.ago.beginning_of_month
@@ -552,6 +579,8 @@ module Profitable
       overall_start = (days_count - 1).days.ago.beginning_of_day
       overall_end = Time.current.end_of_day
 
+      # Daily summary intentionally uses the same "became billable" event date as
+      # new_subscribers/new_mrr, so trial starts do not appear as paid conversions.
       new_sub_records = Pay::Subscription
         .merge(billable_subscription_events_in_period(overall_start, overall_end))
         .pluck(:customer_id, Arel.sql(subscription_became_billable_at_sql))
@@ -592,6 +621,7 @@ module Profitable
     end
 
     def calculate_churned_subscribers_in_period(period_start, period_end)
+      # Churn happens when access/billing actually ends, which Pay stores on ends_at.
       Pay::Subscription
         .where(status: CHURNED_STATUSES)
         .where(ends_at: period_start..period_end)
@@ -600,6 +630,9 @@ module Profitable
     end
 
     def calculate_new_mrr_in_period(period_start, period_end)
+      # New MRR is the full fixed monthly value of subscriptions whose billing
+      # started in the window. It is not prorated, and it still counts if the
+      # subscription churns later in the same period.
       subscriptions_with_processor(
         billable_subscription_events_in_period(period_start, period_end)
       ).sum do |subscription|
@@ -608,6 +641,7 @@ module Profitable
     end
 
     def calculate_churned_mrr_in_period(period_start, period_end)
+      # Churned MRR is the full fixed monthly value being lost at churn time.
       subscriptions_with_processor(
         Pay::Subscription
           .where(status: CHURNED_STATUSES)
@@ -618,7 +652,8 @@ module Profitable
     end
 
     def calculate_churn_rate_for_period(period_start, period_end)
-      # Count subscribers who were active AT the start of the period
+      # Count subscribers who were billable at the start of the period.
+      # This keeps free trials and not-yet-paying subscriptions out of the denominator.
       total_subscribers_start = billable_subscription_scope_at(period_start)
         .distinct
         .count('customer_id')
