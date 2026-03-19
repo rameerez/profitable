@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 - Add `Profitable.ttm_revenue` for trailing twelve-month revenue
+- Add `Profitable.ttm` as a founder-friendly alias for `ttm_revenue`
 - Add `Profitable.revenue_run_rate`, `estimated_arr_valuation`, `estimated_ttm_revenue_valuation`, and `estimated_revenue_run_rate_valuation`
 - Make revenue metrics net of refunds when `amount_refunded` is present
 - Make subscriber and MRR metrics distinguish between current billable subscriptions and historical period events

@@ -32,6 +32,20 @@ Current MRR processor coverage is verified for `stripe`, `braintree`, `paddle_bi
 
 For Stripe, metered subscription items are intentionally excluded from fixed run-rate metrics like `mrr`, `arr`, `new_mrr`, and `churned_mrr`.
 
+> [!IMPORTANT]
+> `profitable` does **not** yet normalize MRR for every processor that `pay` supports.
+> If a subscription comes from an unsupported processor such as `lemon_squeezy`, it will currently contribute `0` to processor-adapter-dependent metrics until an adapter is added.
+>
+> Verified processor-adapter coverage today:
+> - `stripe`
+> - `braintree`
+> - `paddle_billing`
+> - `paddle_classic`
+>
+> Metrics that depend on processor-specific subscription amount parsing include `mrr`, `arr`, `new_mrr`, `churned_mrr`, `mrr_growth`, `mrr_growth_rate`, `lifetime_value`, `time_to_next_mrr_milestone`, and MRR-derived fields in summaries.
+>
+> Metrics based primarily on `Pay::Charge` and generic subscription lifecycle fields are much more portable across processors, including `all_time_revenue`, `revenue_in_period`, `ttm_revenue`, `revenue_run_rate`, customer counts, subscriber counts, and churn calculations.
+
 ## Mount the `/profitable` dashboard
 
 `profitable` also provides a simple dashboard to see your main business metrics.
@@ -56,8 +70,9 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 
 ### Revenue metrics
 
-- `Profitable.mrr`: Current monthly recurring run-rate from currently billable subscriptions
-- `Profitable.arr`: Current annual recurring run-rate (`mrr * 12`), not trailing revenue
+- `Profitable.mrr`: Monthly Recurring Revenue (MRR) from subscriptions that are billable right now
+- `Profitable.arr`: Annual Recurring Revenue (ARR), calculated as current `mrr * 12`, not trailing revenue
+- `Profitable.ttm`: Founder-friendly shorthand alias for `ttm_revenue`
 - `Profitable.ttm_revenue`: Trailing twelve-month revenue, net of refunds when `amount_refunded` is present
 - `Profitable.revenue_run_rate(in_the_last: 30.days)`: Recent revenue annualized (useful for secondary TrustMRR-style revenue multiples)
 - `Profitable.all_time_revenue`: Net revenue since launch
@@ -118,6 +133,9 @@ Profitable.estimated_arr_valuation(multiple: 5).to_readable # => "$500,000"
 # Get trailing twelve-month revenue
 Profitable.ttm_revenue.to_readable # => "$123,456"
 
+# Founder-friendly shorthand for trailing twelve-month revenue
+Profitable.ttm.to_readable # => "$123,456"
+
 # Get recent revenue annualized (useful for secondary TrustMRR-style revenue multiples)
 Profitable.revenue_run_rate(in_the_last: 30.days).to_readable # => "$96,000"
 
@@ -157,14 +175,14 @@ Revenue methods are net of refunds when `amount_refunded` is present on `pay_cha
 
 ## Metric Guide: TTM, Revenue, Profit, ARR, and MRR
 
-`profitable` now exposes both run-rate metrics (`MRR`, `ARR`) and trailing actuals (`TTM revenue`) on purpose.
+`profitable` now exposes both standard recurring revenue metrics (`MRR`, `ARR`) and trailing actuals (`TTM revenue`) on purpose.
 
 These metrics are related, but they are not interchangeable:
 
 | Metric | What it means | Best for | What it is **not** |
 | --- | --- | --- | --- |
-| `MRR` | Current monthly recurring run-rate from active subscriptions | Operating cadence, near-term momentum, tracking upgrades/downgrades | Monthly cash collected from all sources |
-| `ARR` | Current recurring base annualized | Forecasting recurring scale, board/investor reporting, recurring-revenue quality | Historical last-12-month revenue |
+| `MRR` | Monthly Recurring Revenue from subscriptions that are billable right now | Operating cadence, near-term momentum, tracking upgrades/downgrades | Monthly cash collected from all sources |
+| `ARR` | Annual Recurring Revenue, calculated as the current recurring base annualized | Forecasting recurring scale, board/investor reporting, recurring-revenue quality | Historical last-12-month revenue |
 | `MRR * 12` | Simple annualization of the current monthly recurring base | Fast ARR approximation when the base is normalized monthly | TTM revenue or TTM profit |
 | `TTM revenue` | Actual revenue collected over the last 12 months | Buyer-facing historical actuals, smoothing seasonality, sanity-checking ARR | Forward recurring run-rate |
 | `TTM profit` | Actual profit over the last 12 months | Small bootstrapped SaaS exits, ROI-minded buyers, earnings-based multiples | Something `profitable` can derive from `pay` alone |
@@ -176,6 +194,7 @@ These metrics are related, but they are not interchangeable:
 - `TTM revenue` tells you what customers actually paid over the last year.
 - `TTM profit` tells you what the business actually kept after costs. This is often what smaller acquisition buyers care about most, but it requires cost data outside `pay`.
 - In acquire-style market reports, `TTM` can refer to **both** `TTM profit` and `TTM revenue` depending on the chart. The denominator must always be stated explicitly.
+- In `profitable`, the shorthand method `ttm` is defined to mean `ttm_revenue` because the gem does not yet model costs or profit.
 
 In other words:
 
@@ -185,8 +204,9 @@ In other words:
 
 ### What `profitable` Computes
 
-- `Profitable.mrr`: current monthly recurring run-rate from subscriptions that are billable right now
-- `Profitable.arr`: current annual recurring run-rate
+- `Profitable.mrr`: Monthly Recurring Revenue (MRR) from subscriptions that are billable right now
+- `Profitable.arr`: Annual Recurring Revenue (ARR), calculated from current MRR
+- `Profitable.ttm`: shorthand alias for `ttm_revenue`
 - `Profitable.ttm_revenue`: trailing 12-month revenue, net of refunds when `amount_refunded` is present
 - `Profitable.revenue_run_rate`: recent revenue annualized to a yearly run-rate
 - `Profitable.estimated_valuation`: a backwards-compatible ARR-multiple heuristic

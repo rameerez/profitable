@@ -261,6 +261,14 @@ class ProfitableTest < Minitest::Test
     assert_kind_of Profitable::NumericResult, Profitable.ttm_revenue
   end
 
+  def test_ttm_alias_returns_same_value_as_ttm_revenue
+    create_successful_charge(customer: @customer, amount: 5000)
+    create_successful_charge(customer: @customer, amount: 3000)
+
+    assert_kind_of Profitable::NumericResult, Profitable.ttm
+    assert_equal Profitable.ttm_revenue.to_i, Profitable.ttm.to_i
+  end
+
   def test_ttm_revenue_only_includes_last_twelve_months_and_subtracts_refunds
     old_charge = create_successful_charge(customer: @customer, amount: 10000)
     old_charge.update!(created_at: 13.months.ago)
