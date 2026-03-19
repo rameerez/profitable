@@ -22,7 +22,7 @@ module Profitable
           interval = price_data.dig('billing_cycle', 'interval')
           interval_count = price_data.dig('billing_cycle', 'frequency')
 
-          total_mrr += normalize_to_monthly(amount * item_quantity, interval, interval_count)
+          total_mrr += normalize_to_monthly(amount.to_f * item_quantity, interval, interval_count)
         end
 
         total_mrr

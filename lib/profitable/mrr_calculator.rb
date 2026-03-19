@@ -9,8 +9,10 @@ module Profitable
     def self.calculate
       total_mrr = 0
       subscriptions = Pay::Subscription
-        .active
-        .where.not(status: Profitable::EXCLUDED_STATUSES)
+        .where.not(status: Profitable::CURRENT_NON_BILLABLE_SUBSCRIPTION_STATUSES)
+        .where('COALESCE(pay_subscriptions.trial_ends_at, pay_subscriptions.created_at) <= ?', Time.current)
+        .where('pay_subscriptions.pause_starts_at IS NULL OR pay_subscriptions.pause_starts_at > ?', Time.current)
+        .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', Time.current)
         .includes(:customer)
         .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
         .joins(:customer)

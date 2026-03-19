@@ -12,7 +12,7 @@ module Profitable
         interval = data['recurring_interval']
         interval_count = 1 # Paddle Classic doesn't have interval_count
 
-        normalize_to_monthly(amount * quantity, interval, interval_count)
+        normalize_to_monthly(amount.to_f * quantity, interval, interval_count)
       end
     end
   end

@@ -1,5 +1,14 @@
 # `profitable`
 
+## [Unreleased]
+- Add `Profitable.ttm_revenue` for trailing twelve-month revenue
+- Add `Profitable.revenue_run_rate`, `estimated_arr_valuation`, `estimated_ttm_revenue_valuation`, and `estimated_revenue_run_rate_valuation`
+- Make revenue metrics net of refunds when `amount_refunded` is present
+- Make subscriber and MRR metrics distinguish between current billable subscriptions and historical period events
+- Count `new_customers` from first monetization date rather than signup date
+- Count `new_subscribers` / `new_mrr` from when a subscription becomes billable, not when a free trial starts
+- Surface TTM revenue in the built-in dashboard
+
 ## [0.4.0] - 2026-02-10
 - Add monthly summary (12mo) and daily summary (30d) tables to dashboard
 - Add `period_data` method for efficient batch computation of period metrics

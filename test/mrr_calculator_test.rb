@@ -84,12 +84,47 @@ class MrrCalculatorTest < Minitest::Test
     assert_equal 0, Profitable::MrrCalculator.calculate
   end
 
+  def test_calculate_excludes_active_subscriptions_still_on_trial
+    subscription = create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable::MrrCalculator.calculate
+  end
+
   def test_calculate_excludes_paused_subscriptions
     create_stripe_subscription_v10(
       customer: @stripe_customer,
       unit_amount: 9900,
       interval: "month",
       status: "paused"
+    )
+
+    assert_equal 0, Profitable::MrrCalculator.calculate
+  end
+
+  def test_calculate_excludes_incomplete_unpaid_and_incomplete_expired_subscriptions
+    create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "incomplete"
+    )
+    create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month",
+      status: "unpaid"
+    )
+    create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 2900,
+      interval: "month",
+      status: "incomplete_expired"
     )
 
     assert_equal 0, Profitable::MrrCalculator.calculate
@@ -115,6 +150,37 @@ class MrrCalculatorTest < Minitest::Test
     )
 
     assert_equal 0, Profitable::MrrCalculator.calculate
+  end
+
+  def test_calculate_includes_past_due_subscriptions
+    create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "past_due"
+    )
+
+    assert_equal 9900, Profitable::MrrCalculator.calculate
+  end
+
+  def test_calculate_includes_active_subscriptions_until_future_pause_or_end_date
+    pausing_subscription = create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 5000,
+      interval: "month",
+      status: "active"
+    )
+    pausing_subscription.update!(pause_starts_at: 5.days.from_now)
+
+    ending_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 3000,
+      interval: "month",
+      status: "active"
+    )
+    ending_subscription.update!(ends_at: 5.days.from_now)
+
+    assert_equal 8000, Profitable::MrrCalculator.calculate
   end
 
   def test_calculate_includes_only_active_subscriptions
@@ -169,6 +235,17 @@ class MrrCalculatorTest < Minitest::Test
     assert_equal 4900, Profitable::MrrCalculator.process_subscription(subscription)
   end
 
+  def test_process_subscription_handles_braintree_string_amounts
+    subscription = create_braintree_subscription(
+      customer: @braintree_customer,
+      price: "4900",
+      interval: "month",
+      quantity: 2
+    )
+
+    assert_equal 9800, Profitable::MrrCalculator.process_subscription(subscription)
+  end
+
   def test_process_subscription_routes_to_paddle_billing_processor
     subscription = create_paddle_billing_subscription(
       customer: @paddle_billing_customer,
@@ -179,6 +256,17 @@ class MrrCalculatorTest < Minitest::Test
     assert_equal 2900, Profitable::MrrCalculator.process_subscription(subscription)
   end
 
+  def test_process_subscription_handles_paddle_billing_string_amounts
+    subscription = create_paddle_billing_subscription(
+      customer: @paddle_billing_customer,
+      amount: "2900",
+      interval: "month",
+      quantity: 2
+    )
+
+    assert_equal 5800, Profitable::MrrCalculator.process_subscription(subscription)
+  end
+
   def test_process_subscription_routes_to_paddle_classic_processor
     subscription = create_paddle_classic_subscription(
       customer: @paddle_classic_customer,
@@ -187,6 +275,17 @@ class MrrCalculatorTest < Minitest::Test
     )
 
     assert_equal 1900, Profitable::MrrCalculator.process_subscription(subscription)
+  end
+
+  def test_process_subscription_handles_paddle_classic_string_amounts
+    subscription = create_paddle_classic_subscription(
+      customer: @paddle_classic_customer,
+      recurring_price: "1900",
+      interval: "month",
+      quantity: 3
+    )
+
+    assert_equal 5700, Profitable::MrrCalculator.process_subscription(subscription)
   end
 
   def test_process_subscription_uses_base_processor_for_unknown_processor
