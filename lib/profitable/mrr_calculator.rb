@@ -8,9 +8,28 @@ module Profitable
   class MrrCalculator
     def self.calculate
       total_mrr = 0
+
+      # Do not use Pay::Subscription.active here.
+      # Pay's active scope is designed for entitlement/access checks and can include
+      # free-trial access. MRR needs subscriptions that are billable right now.
       subscriptions = Pay::Subscription
-        .active
-        .where.not(status: Profitable::EXCLUDED_STATUSES)
+        .where.not(status: Profitable::NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
+        .where(
+          "(pay_subscriptions.status NOT IN (?) OR (pay_subscriptions.trial_ends_at IS NOT NULL AND pay_subscriptions.trial_ends_at <= ?))",
+          Profitable::TRIAL_SUBSCRIPTION_STATUSES,
+          Time.current
+        )
+        .where(
+          "(pay_subscriptions.status NOT IN (?) OR pay_subscriptions.ends_at IS NOT NULL)",
+          Profitable::CHURNED_STATUSES
+        )
+        .where(
+          "(pay_subscriptions.status != ? OR pay_subscriptions.pause_starts_at IS NOT NULL)",
+          'paused'
+        )
+        .where('COALESCE(pay_subscriptions.trial_ends_at, pay_subscriptions.created_at) <= ?', Time.current)
+        .where('pay_subscriptions.pause_starts_at IS NULL OR pay_subscriptions.pause_starts_at > ?', Time.current)
+        .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', Time.current)
         .includes(:customer)
         .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
         .joins(:customer)
@@ -50,6 +69,8 @@ module Profitable
     end
 
     def self.processor_for(processor_name)
+      # MRR parsing is only implemented for processors with explicit adapters below.
+      # Unknown processors safely fall back to Base and contribute zero until supported.
       case processor_name
       when 'stripe'
         Processors::StripeProcessor

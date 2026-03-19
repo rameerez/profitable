@@ -4,6 +4,7 @@ module Profitable
       @mrr = Profitable.mrr
       @mrr_growth_rate = Profitable.mrr_growth_rate
       @total_customers = Profitable.total_customers
+      @ttm_revenue = Profitable.ttm_revenue
       @all_time_revenue = Profitable.all_time_revenue
       @estimated_valuation = Profitable.estimated_valuation
       @average_revenue_per_customer = Profitable.average_revenue_per_customer

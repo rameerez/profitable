@@ -34,6 +34,70 @@ class ProfitableTest < Minitest::Test
     assert_equal 9900, Profitable.mrr.to_i
   end
 
+  def test_mrr_excludes_subscriptions_still_on_trial_even_if_status_is_active
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable.mrr.to_i
+  end
+
+  def test_mrr_excludes_on_trial_status_until_trial_ends
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "on_trial"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable.mrr.to_i
+  end
+
+  def test_mrr_includes_past_due_subscriptions
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "past_due"
+    )
+
+    assert_equal 9900, Profitable.mrr.to_i
+  end
+
+  def test_mrr_includes_cancel_at_period_end_subscriptions_still_in_grace_period
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    subscription.update!(ends_at: 5.days.from_now)
+
+    assert_equal 9900, Profitable.mrr.to_i
+  end
+
+  def test_mrr_excludes_incomplete_and_unpaid_subscriptions
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "incomplete"
+    )
+    create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month",
+      status: "unpaid"
+    )
+
+    assert_equal 0, Profitable.mrr.to_i
+  end
+
   def test_mrr_to_readable_formats_as_currency
     create_stripe_subscription_v10(
       customer: @customer,
@@ -125,6 +189,34 @@ class ProfitableTest < Minitest::Test
     assert churn <= 100, "Churn should be <= 100%"
   end
 
+  def test_churn_excludes_trial_only_subscribers_from_starting_base
+    active_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    active_subscription.update!(created_at: 60.days.ago)
+
+    churned_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_subscription.update!(created_at: 60.days.ago, ends_at: 10.days.ago)
+
+    converted_trial = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    converted_trial.update!(created_at: 40.days.ago, trial_ends_at: 10.days.ago)
+
+    assert_in_delta 50.0, Profitable.churn(in_the_last: 30.days).to_f, 0.01
+  end
+
   # ============================================================================
   # ALL TIME REVENUE
   # ============================================================================
@@ -148,6 +240,89 @@ class ProfitableTest < Minitest::Test
     assert_equal 5000, Profitable.all_time_revenue.to_i
   end
 
+  def test_all_time_revenue_subtracts_refunds
+    create_successful_charge(customer: @customer, amount: 5000, amount_refunded: 1200)
+    create_successful_charge(customer: @customer, amount: 3000)
+
+    assert_equal 6800, Profitable.all_time_revenue.to_i
+  end
+
+  def test_all_time_revenue_treats_full_refunds_as_zero_revenue
+    create_successful_charge(customer: @customer, amount: 5000, amount_refunded: 5000)
+
+    assert_equal 0, Profitable.all_time_revenue.to_i
+  end
+
+  # ============================================================================
+  # TTM REVENUE
+  # ============================================================================
+
+  def test_ttm_revenue_returns_numeric_result
+    assert_kind_of Profitable::NumericResult, Profitable.ttm_revenue
+  end
+
+  def test_ttm_alias_returns_same_value_as_ttm_revenue
+    create_successful_charge(customer: @customer, amount: 5000)
+    create_successful_charge(customer: @customer, amount: 3000)
+
+    assert_kind_of Profitable::NumericResult, Profitable.ttm
+    assert_equal Profitable.ttm_revenue.to_i, Profitable.ttm.to_i
+  end
+
+  def test_ttm_revenue_only_includes_last_twelve_months_and_subtracts_refunds
+    old_charge = create_successful_charge(customer: @customer, amount: 10000)
+    old_charge.update!(created_at: 13.months.ago)
+
+    recent_charge = create_successful_charge(customer: @customer, amount: 5000)
+    recent_charge.update!(created_at: 11.months.ago)
+
+    refunded_charge = create_successful_charge(customer: @customer, amount: 4000, amount_refunded: 1000)
+    refunded_charge.update!(created_at: 1.month.ago)
+
+    assert_equal 8000, Profitable.ttm_revenue.to_i
+  end
+
+  def test_ttm_revenue_honors_twelve_month_boundary
+    included_charge = create_successful_charge(customer: @customer, amount: 5000)
+    included_charge.update!(created_at: 12.months.ago + 1.second)
+
+    excluded_charge = create_successful_charge(customer: @customer, amount: 7000)
+    excluded_charge.update!(created_at: 12.months.ago - 1.second)
+
+    assert_equal 5000, Profitable.ttm_revenue.to_i
+  end
+
+  # ============================================================================
+  # REVENUE RUN RATE
+  # ============================================================================
+
+  def test_revenue_run_rate_returns_numeric_result
+    assert_kind_of Profitable::NumericResult, Profitable.revenue_run_rate
+  end
+
+  def test_revenue_run_rate_annualizes_recent_revenue
+    create_successful_charge(customer: @customer, amount: 5000)
+    create_successful_charge(customer: @customer, amount: 3000)
+
+    assert_equal 96000, Profitable.revenue_run_rate(in_the_last: 30.days).to_i
+  end
+
+  def test_revenue_run_rate_subtracts_refunds
+    create_successful_charge(customer: @customer, amount: 5000, amount_refunded: 2000)
+
+    assert_equal 36000, Profitable.revenue_run_rate(in_the_last: 30.days).to_i
+  end
+
+  def test_revenue_run_rate_returns_zero_for_zero_length_period
+    assert_equal 0, Profitable.revenue_run_rate(in_the_last: 0.seconds).to_i
+  end
+
+  def test_revenue_run_rate_scales_non_thirty_day_periods
+    create_successful_charge(customer: @customer, amount: 4000)
+
+    assert_equal 96000, Profitable.revenue_run_rate(in_the_last: 15.days).to_i
+  end
+
   # ============================================================================
   # REVENUE IN PERIOD
   # ============================================================================
@@ -168,6 +343,13 @@ class ProfitableTest < Minitest::Test
     assert_equal 8000, Profitable.revenue_in_period(in_the_last: 30.days).to_i
   end
 
+  def test_revenue_in_period_subtracts_refunds
+    create_successful_charge(customer: @customer, amount: 5000, amount_refunded: 2000)
+    create_successful_charge(customer: @customer, amount: 3000)
+
+    assert_equal 6000, Profitable.revenue_in_period(in_the_last: 30.days).to_i
+  end
+
   # ============================================================================
   # RECURRING REVENUE IN PERIOD
   # ============================================================================
@@ -186,6 +368,23 @@ class ProfitableTest < Minitest::Test
     create_successful_charge(customer: @customer, amount: 5000)
 
     assert_equal 9900, Profitable.recurring_revenue_in_period(in_the_last: 30.days).to_i
+  end
+
+  def test_recurring_revenue_in_period_subtracts_refunds
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month"
+    )
+
+    create_successful_charge(
+      customer: @customer,
+      amount: 9900,
+      amount_refunded: 1900,
+      subscription: subscription
+    )
+
+    assert_equal 8000, Profitable.recurring_revenue_in_period(in_the_last: 30.days).to_i
   end
 
   # ============================================================================
@@ -291,17 +490,88 @@ class ProfitableTest < Minitest::Test
     assert_equal expected, high_valuation
   end
 
+  def test_estimated_valuation_matches_estimated_arr_valuation
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 10000,
+      interval: "month"
+    )
+
+    assert_equal Profitable.estimated_arr_valuation(5).to_i, Profitable.estimated_valuation(5).to_i
+  end
+
+  def test_estimated_arr_valuation_clamps_low_multiplier
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 10000,
+      interval: "month"
+    )
+
+    assert_equal 12000, Profitable.estimated_arr_valuation(0).to_i
+  end
+
+  def test_estimated_ttm_revenue_valuation_uses_ttm_revenue
+    charge = create_successful_charge(customer: @customer, amount: 8000)
+    charge.update!(created_at: 2.months.ago)
+
+    assert_equal 32000, Profitable.estimated_ttm_revenue_valuation(4).to_i
+  end
+
+  def test_estimated_ttm_revenue_valuation_accepts_at_keyword
+    charge = create_successful_charge(customer: @customer, amount: 8000)
+    charge.update!(created_at: 2.months.ago)
+
+    assert_equal 32000, Profitable.estimated_ttm_revenue_valuation(at: 4).to_i
+  end
+
+  def test_estimated_revenue_run_rate_valuation_uses_recent_revenue_run_rate
+    create_successful_charge(customer: @customer, amount: 5000)
+    create_successful_charge(customer: @customer, amount: 3000)
+
+    assert_equal 192000, Profitable.estimated_revenue_run_rate_valuation(2, in_the_last: 30.days).to_i
+  end
+
+  def test_estimated_revenue_run_rate_valuation_accepts_multiple_keyword
+    create_successful_charge(customer: @customer, amount: 5000)
+    create_successful_charge(customer: @customer, amount: 3000)
+
+    assert_equal 192000, Profitable.estimated_revenue_run_rate_valuation(multiple: 2, in_the_last: 30.days).to_i
+  end
+
   # ============================================================================
   # SUBSCRIBER COUNTS
   # ============================================================================
 
-  def test_total_customers_counts_customers_with_charges
+  def test_total_customers_counts_customers_with_charges_and_billable_subscriptions
     create_successful_charge(customer: @customer, amount: 5000)
 
     customer2 = create_customer(processor: "stripe")
     create_successful_charge(customer: customer2, amount: 3000)
 
-    assert_equal 2, Profitable.total_customers.to_i
+    customer3 = create_customer(processor: "stripe")
+    subscription = create_stripe_subscription_v10(customer: customer3, unit_amount: 4900, interval: "month")
+    subscription.update!(created_at: 45.days.ago, trial_ends_at: 15.days.ago)
+
+    assert_equal 3, Profitable.total_customers.to_i
+  end
+
+  def test_total_customers_excludes_trial_only_and_incomplete_subscriptions_without_charges
+    trial_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "trialing"
+    )
+    trial_subscription.update!(trial_ends_at: 7.days.from_now)
+
+    create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month",
+      status: "incomplete"
+    )
+
+    assert_equal 0, Profitable.total_customers.to_i
   end
 
   def test_total_subscribers_counts_customers_with_subscriptions
@@ -309,6 +579,53 @@ class ProfitableTest < Minitest::Test
 
     customer2 = create_customer(processor: "stripe")
     create_stripe_subscription_v10(customer: customer2, unit_amount: 4900, interval: "month")
+
+    assert_equal 2, Profitable.total_subscribers.to_i
+  end
+
+  def test_total_subscribers_excludes_trial_only_subscriptions
+    create_stripe_subscription_v10(customer: @customer, unit_amount: 9900, interval: "month")
+
+    trial_customer = create_customer(processor: "stripe")
+    trial_subscription = create_stripe_subscription_v10(
+      customer: trial_customer,
+      unit_amount: 4900,
+      interval: "month",
+      status: "trialing"
+    )
+    trial_subscription.update!(trial_ends_at: 7.days.from_now)
+
+    assert_equal 1, Profitable.total_subscribers.to_i
+  end
+
+  def test_total_subscribers_includes_converted_trials
+    converted_trial = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    converted_trial.update!(created_at: 45.days.ago, trial_ends_at: 15.days.ago)
+
+    assert_equal 1, Profitable.total_subscribers.to_i
+  end
+
+  def test_total_subscribers_includes_cancelled_and_deleted_subscriptions_that_became_billable
+    cancelled_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "cancelled"
+    )
+    cancelled_subscription.update!(created_at: 45.days.ago, trial_ends_at: 30.days.ago, ends_at: 5.days.ago)
+
+    deleted_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month",
+      status: "deleted"
+    )
+    deleted_subscription.update!(created_at: 45.days.ago, ends_at: 5.days.ago)
 
     assert_equal 2, Profitable.total_subscribers.to_i
   end
@@ -334,21 +651,85 @@ class ProfitableTest < Minitest::Test
     assert_equal 1, Profitable.active_subscribers.to_i
   end
 
+  def test_active_subscribers_includes_past_due_and_active_subscriptions_with_future_end_dates
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "past_due"
+    )
+
+    scheduled_end = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month",
+      status: "active"
+    )
+    scheduled_end.update!(ends_at: 5.days.from_now)
+
+    assert_equal 2, Profitable.active_subscribers.to_i
+  end
+
+  def test_active_subscribers_includes_cancelled_subscriptions_still_in_grace_period
+    cancelled_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "cancelled"
+    )
+    cancelled_subscription.update!(ends_at: 5.days.from_now)
+
+    assert_equal 1, Profitable.active_subscribers.to_i
+  end
+
   # ============================================================================
   # NEW CUSTOMERS AND SUBSCRIBERS
   # ============================================================================
 
   def test_new_customers_in_period
-    # Customer created 60 days ago (outside period)
+    # Existing signup who first paid outside the period
     old_customer = create_customer(processor: "stripe")
     old_customer.update!(created_at: 60.days.ago)
-    create_successful_charge(customer: old_customer, amount: 5000)
+    old_charge = create_successful_charge(customer: old_customer, amount: 5000)
+    old_charge.update!(created_at: 60.days.ago)
 
-    # New customer
+    # Existing signup who first became a customer inside the period
+    existing_signup = create_customer(processor: "stripe")
+    existing_signup.update!(created_at: 60.days.ago)
+    create_successful_charge(customer: existing_signup, amount: 3000)
+
+    # Truly new signup who also monetized inside the period
     new_customer = create_customer(processor: "stripe")
-    create_successful_charge(customer: new_customer, amount: 3000)
+    create_successful_charge(customer: new_customer, amount: 4000)
 
-    assert_equal 1, Profitable.new_customers(in_the_last: 30.days).to_i
+    assert_equal 2, Profitable.new_customers(in_the_last: 30.days).to_i
+  end
+
+  def test_new_customers_uses_trial_conversion_date_for_subscription_only_customers
+    trial_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    trial_subscription.update!(created_at: 25.days.ago, trial_ends_at: 5.days.ago)
+
+    assert_equal 1, Profitable.new_customers(in_the_last: 10.days).to_i
+    assert_equal 0, Profitable.new_customers(in_the_last: 3.days).to_i
+  end
+
+  def test_new_customers_uses_earliest_monetization_event
+    create_successful_charge(customer: @customer, amount: 5000, created_at: 60.days.ago)
+
+    later_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    later_subscription.update!(created_at: 10.days.ago)
+
+    assert_equal 0, Profitable.new_customers(in_the_last: 30.days).to_i
   end
 
   def test_new_subscribers_counts_new_subscriptions_in_period
@@ -369,6 +750,48 @@ class ProfitableTest < Minitest::Test
     )
 
     assert_equal 1, Profitable.new_subscribers(in_the_last: 30.days).to_i
+  end
+
+  def test_new_subscribers_uses_trial_conversion_date
+    trial_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    trial_subscription.update!(created_at: 25.days.ago, trial_ends_at: 5.days.ago)
+
+    assert_equal 1, Profitable.new_subscribers(in_the_last: 10.days).to_i
+    assert_equal 0, Profitable.new_subscribers(in_the_last: 3.days).to_i
+  end
+
+  def test_new_subscribers_excludes_incomplete_and_unpaid_subscriptions
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "incomplete"
+    )
+    create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month",
+      status: "unpaid"
+    )
+
+    assert_equal 0, Profitable.new_subscribers(in_the_last: 30.days).to_i
+  end
+
+  def test_new_subscribers_excludes_on_trial_subscriptions_until_trial_ends
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "on_trial"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable.new_subscribers(in_the_last: 30.days).to_i
   end
 
   # ============================================================================
@@ -395,6 +818,28 @@ class ProfitableTest < Minitest::Test
     churned_sub.update!(ends_at: 10.days.ago)
 
     assert_equal 1, Profitable.churned_customers(in_the_last: 30.days).to_i
+  end
+
+  def test_churned_customers_counts_cancelled_and_deleted_status_aliases
+    cancelled_customer = create_customer(processor: "stripe")
+    cancelled_subscription = create_stripe_subscription_v10(
+      customer: cancelled_customer,
+      unit_amount: 4900,
+      interval: "month",
+      status: "cancelled"
+    )
+    cancelled_subscription.update!(created_at: 45.days.ago, ends_at: 10.days.ago)
+
+    deleted_customer = create_customer(processor: "stripe")
+    deleted_subscription = create_stripe_subscription_v10(
+      customer: deleted_customer,
+      unit_amount: 3900,
+      interval: "month",
+      status: "deleted"
+    )
+    deleted_subscription.update!(created_at: 45.days.ago, ends_at: 8.days.ago)
+
+    assert_equal 2, Profitable.churned_customers(in_the_last: 30.days).to_i
   end
 
   # ============================================================================
@@ -434,6 +879,60 @@ class ProfitableTest < Minitest::Test
     assert_equal 0, Profitable.new_mrr(in_the_last: 30.days).to_i
   end
 
+  def test_new_mrr_counts_subscriptions_that_churned_later_in_period
+    churned_sub = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_sub.update!(created_at: 20.days.ago, ends_at: 5.days.ago)
+
+    assert_equal 9900, Profitable.new_mrr(in_the_last: 30.days).to_i
+  end
+
+  def test_new_mrr_uses_trial_conversion_date
+    trial_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    trial_subscription.update!(created_at: 25.days.ago, trial_ends_at: 5.days.ago)
+
+    assert_equal 9900, Profitable.new_mrr(in_the_last: 10.days).to_i
+    assert_equal 0, Profitable.new_mrr(in_the_last: 3.days).to_i
+  end
+
+  def test_new_mrr_excludes_incomplete_and_unpaid_subscriptions
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "incomplete"
+    )
+    create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month",
+      status: "unpaid"
+    )
+
+    assert_equal 0, Profitable.new_mrr(in_the_last: 30.days).to_i
+  end
+
+  def test_new_mrr_excludes_on_trial_subscriptions_until_trial_ends
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "on_trial"
+    )
+    subscription.update!(trial_ends_at: 5.days.from_now)
+
+    assert_equal 0, Profitable.new_mrr(in_the_last: 30.days).to_i
+  end
+
   # ============================================================================
   # CHURNED MRR
   # ============================================================================
@@ -453,6 +952,26 @@ class ProfitableTest < Minitest::Test
 
     # REGRESSION TEST: Should be full MRR, not prorated
     assert_equal 9900, Profitable.churned_mrr(in_the_last: 30.days).to_i
+  end
+
+  def test_churned_mrr_counts_cancelled_and_deleted_status_aliases
+    cancelled_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 4900,
+      interval: "month",
+      status: "cancelled"
+    )
+    cancelled_subscription.update!(created_at: 45.days.ago, ends_at: 10.days.ago)
+
+    deleted_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 3900,
+      interval: "month",
+      status: "deleted"
+    )
+    deleted_subscription.update!(created_at: 45.days.ago, ends_at: 8.days.ago)
+
+    assert_equal 8800, Profitable.churned_mrr(in_the_last: 30.days).to_i
   end
 
   # ============================================================================
@@ -605,6 +1124,25 @@ class ProfitableTest < Minitest::Test
     assert_equal 0, Profitable.mrr_growth_rate(in_the_last: 30.days).to_f
   end
 
+  def test_mrr_growth_rate_uses_billable_historical_snapshots
+    surviving_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 10000,
+      interval: "month"
+    )
+    surviving_subscription.update!(created_at: 60.days.ago)
+
+    churned_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 5000,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_subscription.update!(created_at: 60.days.ago, ends_at: 15.days.ago)
+
+    assert_in_delta(-33.33, Profitable.mrr_growth_rate(in_the_last: 30.days).to_f, 0.01)
+  end
+
   # ============================================================================
   # TIME TO NEXT MRR MILESTONE
   # ============================================================================
@@ -677,6 +1215,25 @@ class ProfitableTest < Minitest::Test
 
     assert_equal 1, current_month[:new_subscribers]
     assert_equal 9900, current_month[:new_mrr]
+  end
+
+  def test_monthly_summary_uses_trial_conversion_month_for_new_subscribers_and_new_mrr
+    trial_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    trial_subscription.update!(created_at: 40.days.ago, trial_ends_at: 5.days.ago)
+
+    result = Profitable.monthly_summary(months: 2)
+    current_month = result.last
+    previous_month = result.first
+
+    assert_equal 1, current_month[:new_subscribers]
+    assert_equal 9900, current_month[:new_mrr]
+    assert_equal 0, previous_month[:new_subscribers]
+    assert_equal 0, previous_month[:new_mrr]
   end
 
   def test_monthly_summary_captures_churned_subscribers
@@ -763,6 +1320,23 @@ class ProfitableTest < Minitest::Test
 
     assert_equal Date.current, today[:date]
     assert_equal 1, today[:new_subscribers]
+  end
+
+  def test_daily_summary_uses_trial_conversion_day_for_new_subscribers
+    trial_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "active"
+    )
+    trial_subscription.update!(created_at: 10.days.ago, trial_ends_at: Time.current)
+
+    result = Profitable.daily_summary(days: 2)
+    today = result.last
+    yesterday = result.first
+
+    assert_equal 1, today[:new_subscribers]
+    assert_equal 0, yesterday[:new_subscribers]
   end
 
   def test_daily_summary_captures_churned_subscriber
@@ -885,6 +1459,24 @@ class ProfitableTest < Minitest::Test
     assert_equal 10000, data[:new_mrr].to_i
     assert_equal 5000, data[:churned_mrr].to_i
     assert_equal 5000, data[:mrr_growth].to_i
+  end
+
+  def test_period_data_revenue_is_net_of_refunds
+    create_successful_charge(customer: @customer, amount: 5000, amount_refunded: 2000)
+
+    data = Profitable.period_data(in_the_last: 30.days)
+
+    assert_equal 3000, data[:revenue].to_i
+  end
+
+  def test_period_data_new_customers_uses_first_monetization_date
+    existing_signup = create_customer(processor: "stripe")
+    existing_signup.update!(created_at: 60.days.ago)
+    create_successful_charge(customer: existing_signup, amount: 4000)
+
+    data = Profitable.period_data(in_the_last: 30.days)
+
+    assert_equal 1, data[:new_customers].to_i
   end
 
   # ============================================================================
