@@ -410,7 +410,7 @@ class MrrCalculatorTest < Minitest::Test
   end
 
   def test_calculate_wraps_unexpected_errors_in_profitable_error
-    Profitable.stubs(:calculate_mrr_at).raises(StandardError.new("database exploded"))
+    Profitable.stubs(:mrr_at).raises(StandardError.new("database exploded"))
 
     error = assert_raises(Profitable::Error) { Profitable::MrrCalculator.calculate }
 
@@ -431,7 +431,7 @@ class MrrCalculatorTest < Minitest::Test
 
     # Current MRR and the MRR-at-date snapshot must be the same query;
     # if these ever diverge, growth rates stop being trustworthy.
-    assert_equal Profitable.calculate_mrr_at(Time.current), Profitable::MrrCalculator.calculate
+    assert_equal Profitable.mrr_at(Time.current).to_i, Profitable::MrrCalculator.calculate
   end
 
   # ============================================================================

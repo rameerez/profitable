@@ -249,7 +249,7 @@ class RegressionTest < Minitest::Test
     new_sub.update!(created_at: 15.days.ago)
 
     # MRR at 45 days ago should include churned_sub but NOT new_sub
-    historical_mrr = Profitable.calculate_mrr_at(45.days.ago)
+    historical_mrr = Profitable.mrr_at(45.days.ago).to_i
 
     assert_equal 5000, historical_mrr, "BUG #5 REGRESSION: Should calculate MRR at historical date"
   end
@@ -806,6 +806,20 @@ class RegressionTest < Minitest::Test
     )
 
     assert_equal 0, Profitable.all_time_revenue.to_i
+  end
+
+  def test_bug15_dual_payload_columns_prefer_object_payload
+    Pay::Charge.create!(
+      customer: @customer,
+      processor_id: "ch_dual_payload",
+      amount: 7000,
+      currency: "usd",
+      object: { "paid" => false },
+      data: { "paid" => true, "status" => "succeeded" }
+    )
+
+    assert_equal 0, Profitable.all_time_revenue.to_i,
+      "BUG #15 REGRESSION: object payloads must win when both charge payload columns exist"
   end
 
   def test_bug15_legacy_pay_schema_without_object_column_still_counts_data_charges

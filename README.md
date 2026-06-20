@@ -66,6 +66,7 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 ### Revenue metrics
 
 - `Profitable.mrr`: Monthly Recurring Revenue (MRR) from subscriptions that are billable right now
+- `Profitable.mrr_at(date)`: Historical MRR snapshot from subscriptions that were billable at the given date
 - `Profitable.arr`: Annual Recurring Revenue (ARR), calculated as current `mrr * 12`, not trailing revenue
 - `Profitable.ttm`: Founder-friendly shorthand alias for `ttm_revenue`
 - `Profitable.ttm_revenue`: Trailing twelve-month revenue, net of refunds when `amount_refunded` is present
@@ -112,6 +113,9 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 ```ruby
 # Get the current MRR
 Profitable.mrr.to_readable # => "$1,234"
+
+# Get the MRR snapshot for a historical date
+Profitable.mrr_at(30.days.ago).to_readable # => "$987"
 
 # Get the number of new customers in the last 60 days
 Profitable.new_customers(in_the_last: 60.days).to_readable # => "42"

@@ -34,6 +34,30 @@ class ProfitableTest < Minitest::Test
     assert_equal 9900, Profitable.mrr.to_i
   end
 
+  def test_mrr_at_returns_numeric_result
+    assert_kind_of Profitable::NumericResult, Profitable.mrr_at(Time.current)
+  end
+
+  def test_mrr_at_calculates_historical_snapshot
+    churned_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_subscription.update!(created_at: 60.days.ago, ends_at: 10.days.ago)
+
+    current_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month"
+    )
+    current_subscription.update!(created_at: 5.days.ago)
+
+    assert_equal 9900, Profitable.mrr_at(30.days.ago).to_i
+    assert_equal 4900, Profitable.mrr_at(Time.current).to_i
+  end
+
   def test_mrr_excludes_subscriptions_still_on_trial_even_if_status_is_active
     subscription = create_stripe_subscription_v10(
       customer: @customer,
@@ -815,6 +839,8 @@ class ProfitableTest < Minitest::Test
       interval: "month",
       status: "canceled"
     )
+    # Churn fixtures must have existed before ends_at to satisfy the
+    # billable-before-ending guard.
     churned_sub.update!(created_at: 45.days.ago, ends_at: 10.days.ago)
 
     assert_equal 1, Profitable.churned_customers(in_the_last: 30.days).to_i

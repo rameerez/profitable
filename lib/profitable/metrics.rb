@@ -29,6 +29,11 @@ module Profitable
       NumericResult.new(MrrCalculator.calculate)
     end
 
+    # Historical MRR snapshot from subscriptions that were billable at the given date.
+    def mrr_at(date)
+      NumericResult.new(calculate_mrr_at(date))
+    end
+
     # Annual Recurring Revenue (ARR) based on the current recurring base.
     # This is today's MRR annualized, not historical 12-month revenue.
     def arr
@@ -170,18 +175,6 @@ module Profitable
       calculate_period_data(in_the_last)
     end
 
-    # Historical MRR snapshot in cents.
-    # Exposed for MrrCalculator so current MRR and historical MRR use exactly
-    # the same query without reaching through private methods with `send`.
-    def calculate_mrr_at(date)
-      # Find subscriptions that were active AT the given date:
-      # - Started billing before or on that date
-      # - Not ended before that date (ends_at is nil OR ends_at > date)
-      # - Not paused at that date
-      # - Not still in a free trial at that date
-      mrr_sum(billable_subscription_scope_at(date))
-    end
-
     private
 
     # Helper to load subscriptions with processor info from customer
@@ -202,9 +195,11 @@ module Profitable
     # A subscription only ever counts as billable if it ended AFTER billing started.
     # Canceled trials never satisfy this: Pay normalizes trial_ends_at down to the
     # end date on ended Stripe subscriptions (ends_at == trial_ends_at), and Paddle
-    # leaves a stale future trial_ends_at (ends_at < trial_ends_at). This single
-    # predicate keeps never-converted trials out of subscriber counts, new/churned
-    # MRR, churn rates, and the dashboard summaries.
+    # leaves a stale future trial_ends_at (ends_at < trial_ends_at). The strict
+    # `>` is intentional: equality means the subscription never had a billable
+    # interval for metric purposes, even if those timestamps share a second.
+    # This single predicate keeps never-converted trials out of subscriber counts,
+    # new/churned MRR, churn rates, and the dashboard summaries.
     def subscription_was_billable_before_ending_sql
       "(pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > #{subscription_became_billable_at_sql})"
     end
@@ -483,6 +478,15 @@ module Profitable
       new_mrr = calculate_new_mrr(period)
       churned_mrr = calculate_churned_mrr(period)
       new_mrr - churned_mrr
+    end
+
+    def calculate_mrr_at(date)
+      # Find subscriptions that were active AT the given date:
+      # - Started billing before or on that date
+      # - Not ended before that date (ends_at is nil OR ends_at > date)
+      # - Not paused at that date
+      # - Not still in a free trial at that date
+      mrr_sum(billable_subscription_scope_at(date))
     end
 
     def calculate_mrr_growth_rate(period = DEFAULT_PERIOD)
