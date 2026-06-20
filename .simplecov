@@ -15,10 +15,10 @@ SimpleCov.start do
   add_filter "/lib/profitable/engine.rb"
   add_filter "/app/"
 
-  # Exclude the main profitable.rb entry point - it loads the engine and
-  # defines the Profitable module. Our unit tests use a test-specific
-  # Profitable module (defined in test_helper.rb) to avoid Rails dependencies.
-  # The core logic is tested via the individual lib/profitable/*.rb files.
+  # Exclude the main profitable.rb entry point - it only requires the engine
+  # and the gem's components. The test harness loads those components directly
+  # (test_helper.rb) because requiring the engine needs a full Rails app, so
+  # all core logic in lib/profitable/*.rb runs as real production code paths.
   add_filter "/lib/profitable.rb"
 
   # Track the lib directory (core gem logic)

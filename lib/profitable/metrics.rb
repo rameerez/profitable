@@ -4,9 +4,16 @@ module Profitable
   # Pay exposes some processor-specific status variants beyond the core generic list.
   # We normalize them into business-meaningful groups so current-state metrics,
   # historical event metrics, and churn denominators all behave consistently.
+  #
+  # - Trial statuses bill nothing until the trial actually ends (Stripe: trialing,
+  #   Lemon Squeezy: on_trial).
+  # - Churned statuses stop billing at ends_at (Stripe: canceled, Paddle Classic:
+  #   deleted, Braintree/Lemon Squeezy: expired, legacy Pay: ended/cancelled).
+  # - Never-billable statuses either failed to start billing (Stripe: incomplete,
+  #   incomplete_expired, unpaid) or have not started billing yet (Braintree: pending).
   TRIAL_SUBSCRIPTION_STATUSES = ['trialing', 'on_trial'].freeze
-  CHURNED_STATUSES  = ['canceled', 'cancelled', 'ended', 'deleted'].freeze
-  NEVER_BILLABLE_SUBSCRIPTION_STATUSES = ['incomplete', 'incomplete_expired', 'unpaid'].freeze
+  CHURNED_STATUSES  = ['canceled', 'cancelled', 'ended', 'deleted', 'expired'].freeze
+  NEVER_BILLABLE_SUBSCRIPTION_STATUSES = ['incomplete', 'incomplete_expired', 'unpaid', 'pending'].freeze
 
   class << self
     include ActionView::Helpers::NumberHelper
@@ -63,7 +70,7 @@ module Profitable
       NumericResult.new(calculate_recurring_revenue_percentage(in_the_last), :percentage)
     end
 
-    def revenue_run_rate(in_the_last: 30.days)
+    def revenue_run_rate(in_the_last: DEFAULT_PERIOD)
       NumericResult.new(calculate_revenue_run_rate(in_the_last))
     end
 
@@ -83,7 +90,7 @@ module Profitable
       NumericResult.new(calculate_estimated_valuation_from(ttm_revenue.to_i, actual_multiplier))
     end
 
-    def estimated_revenue_run_rate_valuation(multiplier = nil, at: nil, multiple: nil, in_the_last: 30.days)
+    def estimated_revenue_run_rate_valuation(multiplier = nil, at: nil, multiple: nil, in_the_last: DEFAULT_PERIOD)
       actual_multiplier = multiplier || at || multiple || 3
       NumericResult.new(calculate_estimated_valuation_from(revenue_run_rate(in_the_last:).to_i, actual_multiplier))
     end
@@ -148,25 +155,7 @@ module Profitable
     end
 
     def time_to_next_mrr_milestone
-      current_mrr = (mrr.to_i) / 100  # Convert cents to dollars
-      return "Unable to calculate. No MRR yet." if current_mrr <= 0
-
-      next_milestone = MRR_MILESTONES.find { |milestone| milestone > current_mrr }
-      return "Congratulations! You've reached the highest milestone." unless next_milestone
-
-      monthly_growth_rate = calculate_mrr_growth_rate / 100
-      return "Unable to calculate. Need more data or positive growth." if monthly_growth_rate <= 0
-
-      # Convert monthly growth rate to daily growth rate
-      daily_growth_rate = (1 + monthly_growth_rate) ** (1.0 / 30) - 1
-      return "Unable to calculate. Growth rate too small." if daily_growth_rate <= 0
-
-      # Calculate the number of days to reach the next milestone
-      days_to_milestone = (Math.log(next_milestone.to_f / current_mrr) / Math.log(1 + daily_growth_rate)).ceil
-
-      target_date = Time.current + days_to_milestone.days
-
-      "#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR (#{target_date.strftime('%b %d, %Y')})"
+      NumericResult.new(calculate_time_to_next_mrr_milestone, :string)
     end
 
     def monthly_summary(months: 12)
@@ -198,6 +187,16 @@ module Profitable
       'COALESCE(pay_subscriptions.trial_ends_at, pay_subscriptions.created_at)'
     end
 
+    # A subscription only ever counts as billable if it ended AFTER billing started.
+    # Canceled trials never satisfy this: Pay normalizes trial_ends_at down to the
+    # end date on ended Stripe subscriptions (ends_at == trial_ends_at), and Paddle
+    # leaves a stale future trial_ends_at (ends_at < trial_ends_at). This single
+    # predicate keeps never-converted trials out of subscriber counts, new/churned
+    # MRR, churn rates, and the dashboard summaries.
+    def subscription_was_billable_before_ending_sql
+      "(pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > #{subscription_became_billable_at_sql})"
+    end
+
     # We intentionally do not reuse Pay::Subscription.active here.
     # Pay's active scope is access-oriented and can include free-trial access,
     # while profitable needs billable subscription semantics for metrics.
@@ -217,6 +216,7 @@ module Profitable
           "(pay_subscriptions.status != ? OR pay_subscriptions.pause_starts_at IS NOT NULL)",
           'paused'
         )
+        .where(subscription_was_billable_before_ending_sql)
     end
 
     # Any subscription that has ever crossed into a paid/billable state,
@@ -248,38 +248,56 @@ module Profitable
         .where("#{subscription_became_billable_at_sql} BETWEEN ? AND ?", period_start, period_end)
     end
 
+    # Churn events: subscriptions whose billing actually stopped inside the window.
+    # Pay stores the moment access/billing ends on ends_at. The billable-before-ending
+    # guard keeps canceled trials (which never paid) from showing up as churn.
+    def churned_subscription_events_in_period(period_start, period_end, scope = Pay::Subscription.all)
+      scope
+        .where(status: CHURNED_STATUSES)
+        .where(ends_at: period_start..period_end)
+        .where(subscription_was_billable_before_ending_sql)
+    end
+
     def subscription_became_billable_at(subscription)
       subscription.trial_ends_at || subscription.created_at
     end
 
+    # Full fixed monthly value of every subscription in the scope.
+    # find_each keeps memory flat on large datasets.
+    def mrr_sum(scope)
+      subscriptions_with_processor(scope).find_each.sum do |subscription|
+        MrrCalculator.process_subscription(subscription)
+      end
+    end
+
     def paid_charges
-      # Pay gem v10+ stores charge data in `object` column, older versions used `data`
-      # We check both columns for backwards compatibility using database-agnostic JSON extraction
+      # Stripe charges (the only processor Pay stores raw payloads for) carry
+      # `paid` and `status` keys we filter on. Charges from other processors have
+      # neither key, so they pass through the IS NULL branches — Pay only syncs
+      # their successful transactions in the first place.
       #
       # Performance note: The COALESCE pattern may prevent index usage on some databases.
       # This is an acceptable tradeoff for backwards compatibility with Pay < 10.
       # For high-volume scenarios, consider adding a composite index or upgrading to Pay 10+
       # where only the `object` column is used.
+      paid = charge_json_value_sql('paid')
+      status = charge_json_value_sql('status')
 
-      # Build JSON extraction SQL for both object and data columns
-      paid_object = json_extract('pay_charges.object', 'paid')
-      paid_data = json_extract('pay_charges.data', 'paid')
-      status_object = json_extract('pay_charges.object', 'status')
-      status_data = json_extract('pay_charges.data', 'status')
-
+      # JSON booleans surface as 'false'/'true' on PostgreSQL/MySQL but as
+      # text-cast integers '0'/'1' on SQLite, so we exclude both spellings.
       Pay::Charge
         .where("pay_charges.amount > 0")
-        .where(<<~SQL.squish, 'false', 'succeeded')
-          (
-            (COALESCE(#{paid_object}, #{paid_data}) IS NULL
-             OR COALESCE(#{paid_object}, #{paid_data}) != ?)
-          )
+        .where(<<~SQL.squish, 'false', '0', 'succeeded')
+          (#{paid} IS NULL OR #{paid} NOT IN (?, ?))
           AND
-          (
-            COALESCE(#{status_object}, #{status_data}) = ?
-            OR COALESCE(#{status_object}, #{status_data}) IS NULL
-          )
+          (#{status} = ? OR #{status} IS NULL)
         SQL
+    end
+
+    # Pay gem v10+ stores charge payloads in the `object` column, older versions
+    # used `data`. We check both for backwards compatibility.
+    def charge_json_value_sql(key)
+      "COALESCE(#{json_extract('pay_charges.object', key)}, #{json_extract('pay_charges.data', key)})"
     end
 
     # Revenue metrics should reflect net cash collected, not gross billed amounts.
@@ -297,11 +315,7 @@ module Profitable
     end
 
     def calculate_arr
-      (mrr.to_f * 12).round
-    end
-
-    def calculate_estimated_valuation(multiplier = 3)
-      calculate_estimated_valuation_from(calculate_arr, multiplier)
+      mrr.to_i * 12
     end
 
     def calculate_estimated_valuation_from(base_amount, multiplier = 3)
@@ -356,7 +370,7 @@ module Profitable
     def calculate_recurring_revenue_in_period(period)
       net_revenue(
         paid_charges
-          .joins('INNER JOIN pay_subscriptions ON pay_charges.subscription_id = pay_subscriptions.id')
+          .joins(:subscription)
           .where(created_at: period.ago..Time.current)
       )
     end
@@ -452,17 +466,35 @@ module Profitable
       ((end_mrr.to_f - start_mrr) / start_mrr * 100).round(2)
     end
 
+    def calculate_time_to_next_mrr_milestone
+      current_mrr = (mrr.to_i) / 100  # Convert cents to dollars
+      return "Unable to calculate. No MRR yet." if current_mrr <= 0
+
+      next_milestone = MRR_MILESTONES.find { |milestone| milestone > current_mrr }
+      return "Congratulations! You've reached the highest milestone." unless next_milestone
+
+      monthly_growth_rate = calculate_mrr_growth_rate / 100
+      return "Unable to calculate. Need more data or positive growth." if monthly_growth_rate <= 0
+
+      # Convert monthly growth rate to daily growth rate
+      daily_growth_rate = (1 + monthly_growth_rate) ** (1.0 / 30) - 1
+      return "Unable to calculate. Growth rate too small." if daily_growth_rate <= 0
+
+      # Calculate the number of days to reach the next milestone
+      days_to_milestone = (Math.log(next_milestone.to_f / current_mrr) / Math.log(1 + daily_growth_rate)).ceil
+
+      target_date = Time.current + days_to_milestone.days
+
+      "#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR (#{target_date.strftime('%b %d, %Y')})"
+    end
+
     def calculate_mrr_at(date)
       # Find subscriptions that were active AT the given date:
       # - Started billing before or on that date
       # - Not ended before that date (ends_at is nil OR ends_at > date)
       # - Not paused at that date
       # - Not still in a free trial at that date
-      subscriptions_with_processor(
-        billable_subscription_scope_at(date)
-      ).sum do |subscription|
-        MrrCalculator.process_subscription(subscription)
-      end
+      mrr_sum(billable_subscription_scope_at(date))
     end
 
     def calculate_period_data(period)
@@ -480,7 +512,7 @@ module Profitable
       # Churn rate (reuses churned_count)
       total_at_start = billable_subscription_scope_at(period_start)
         .distinct
-        .count('customer_id')
+        .count(:customer_id)
       churn_rate = total_at_start > 0 ? (churned_count.to_f / total_at_start * 100).round(1) : 0
 
       {
@@ -497,18 +529,17 @@ module Profitable
     # Batched: loads all data in 5 queries then groups by month in Ruby
     def calculate_monthly_summary(months_count)
       overall_start = (months_count - 1).months.ago.beginning_of_month
-      overall_end = Time.current.end_of_month
+      # Events cannot exist in the future: a trial scheduled to convert later
+      # this month is not a new subscriber yet, so the window is capped at now.
+      overall_end = Time.current
 
       # Bulk load all data for the full range, then group in Ruby.
       # This keeps the dashboard query count low while preserving the same
       # billable-date semantics used by the single-metric helpers.
-      new_sub_records = Pay::Subscription
-        .merge(billable_subscription_events_in_period(overall_start, overall_end))
+      new_sub_records = billable_subscription_events_in_period(overall_start, overall_end)
         .pluck(:customer_id, Arel.sql(subscription_became_billable_at_sql))
 
-      churned_sub_records = Pay::Subscription
-        .where(status: CHURNED_STATUSES)
-        .where(ends_at: overall_start..overall_end)
+      churned_sub_records = churned_subscription_events_in_period(overall_start, overall_end)
         .pluck(:customer_id, :ends_at)
 
       new_mrr_subs = subscriptions_with_processor(
@@ -516,14 +547,16 @@ module Profitable
       ).to_a
 
       churned_mrr_subs = subscriptions_with_processor(
-        Pay::Subscription
-          .where(status: CHURNED_STATUSES)
-          .where(ends_at: overall_start..overall_end)
+        churned_subscription_events_in_period(overall_start, overall_end)
       ).to_a
 
-      churn_base_records = billable_subscription_scope_at(overall_end, Pay::Subscription)
+      # The churn denominator needs every subscription that was billable at each
+      # month's start — including ones that churned later inside the window — so
+      # the end-date and pause cutoffs are evaluated per month in Ruby, not in SQL.
+      churn_base_records = subscription_is_billable_by(overall_end)
+        .where("#{subscription_became_billable_at_sql} <= ?", overall_end)
         .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', overall_start)
-        .pluck(:customer_id, Arel.sql(subscription_became_billable_at_sql), :ends_at)
+        .pluck(:customer_id, Arel.sql(subscription_became_billable_at_sql), :ends_at, :pause_starts_at)
 
       # Group by month in Ruby using billable-at and ends_at as the event dates,
       # rather than raw subscription created_at.
@@ -533,7 +566,7 @@ module Profitable
         month_end = month_start.end_of_month
 
         new_count = new_sub_records
-          .select { |_, created_at| created_at >= month_start && created_at <= month_end }
+          .select { |_, became_billable_at| became_billable_at >= month_start && became_billable_at <= month_end }
           .map(&:first).uniq.count
 
         churned_count = churned_sub_records
@@ -549,7 +582,11 @@ module Profitable
           .sum { |s| MrrCalculator.process_subscription(s) }
 
         total_at_start = churn_base_records
-          .select { |_, billable_at, ends_at| billable_at < month_start && (ends_at.nil? || ends_at > month_start) }
+          .select do |_, billable_at, ends_at, pause_starts_at|
+            billable_at < month_start &&
+              (ends_at.nil? || ends_at > month_start) &&
+              (pause_starts_at.nil? || pause_starts_at > month_start)
+          end
           .map(&:first).uniq.count
 
         churn_rate = total_at_start > 0 ? (churned_count.to_f / total_at_start * 100).round(1) : 0
@@ -573,17 +610,15 @@ module Profitable
     # Batched: loads all data in 2 queries then groups by day in Ruby
     def calculate_daily_summary(days_count)
       overall_start = (days_count - 1).days.ago.beginning_of_day
-      overall_end = Time.current.end_of_day
+      # Capped at now so trials scheduled to convert later today do not count yet.
+      overall_end = Time.current
 
       # Daily summary intentionally uses the same "became billable" event date as
       # new_subscribers/new_mrr, so trial starts do not appear as paid conversions.
-      new_sub_records = Pay::Subscription
-        .merge(billable_subscription_events_in_period(overall_start, overall_end))
+      new_sub_records = billable_subscription_events_in_period(overall_start, overall_end)
         .pluck(:customer_id, Arel.sql(subscription_became_billable_at_sql))
 
-      churned_sub_records = Pay::Subscription
-        .where(status: CHURNED_STATUSES)
-        .where(ends_at: overall_start..overall_end)
+      churned_sub_records = churned_subscription_events_in_period(overall_start, overall_end)
         .pluck(:customer_id, :ends_at)
 
       summary = []
@@ -592,7 +627,7 @@ module Profitable
         day_end = day_start.end_of_day
 
         new_count = new_sub_records
-          .select { |_, created_at| created_at >= day_start && created_at <= day_end }
+          .select { |_, became_billable_at| became_billable_at >= day_start && became_billable_at <= day_end }
           .map(&:first).uniq.count
 
         churned_count = churned_sub_records
@@ -617,34 +652,21 @@ module Profitable
     end
 
     def calculate_churned_subscribers_in_period(period_start, period_end)
-      # Churn happens when access/billing actually ends, which Pay stores on ends_at.
-      Pay::Subscription
-        .where(status: CHURNED_STATUSES)
-        .where(ends_at: period_start..period_end)
+      churned_subscription_events_in_period(period_start, period_end)
         .distinct
-        .count('customer_id')
+        .count(:customer_id)
     end
 
     def calculate_new_mrr_in_period(period_start, period_end)
       # New MRR is the full fixed monthly value of subscriptions whose billing
       # started in the window. It is not prorated, and it still counts if the
       # subscription churns later in the same period.
-      subscriptions_with_processor(
-        billable_subscription_events_in_period(period_start, period_end)
-      ).sum do |subscription|
-        MrrCalculator.process_subscription(subscription)
-      end
+      mrr_sum(billable_subscription_events_in_period(period_start, period_end))
     end
 
     def calculate_churned_mrr_in_period(period_start, period_end)
       # Churned MRR is the full fixed monthly value being lost at churn time.
-      subscriptions_with_processor(
-        Pay::Subscription
-          .where(status: CHURNED_STATUSES)
-          .where(ends_at: period_start..period_end)
-      ).sum do |subscription|
-        MrrCalculator.process_subscription(subscription)
-      end
+      mrr_sum(churned_subscription_events_in_period(period_start, period_end))
     end
 
     def calculate_churn_rate_for_period(period_start, period_end)
@@ -652,7 +674,7 @@ module Profitable
       # This keeps free trials and not-yet-paying subscriptions out of the denominator.
       total_subscribers_start = billable_subscription_scope_at(period_start)
         .distinct
-        .count('customer_id')
+        .count(:customer_id)
 
       churned = calculate_churned_subscribers_in_period(period_start, period_end)
       return 0 if total_subscribers_start == 0

@@ -9,6 +9,7 @@ require "simplecov"
 require "bundler/setup"
 require "active_record"
 require "active_support/all"
+require "active_support/testing/time_helpers"
 require "action_view"
 require "minitest/autorun"
 require "minitest/mock"
@@ -346,11 +347,16 @@ end
 
 class Minitest::Test
   include ProfitableTestHelpers
+  include ActiveSupport::Testing::TimeHelpers
 
   def setup
     # Clean up database before each test
     Pay::Charge.delete_all
     Pay::Subscription.delete_all
     Pay::Customer.delete_all
+  end
+
+  def teardown
+    travel_back
   end
 end

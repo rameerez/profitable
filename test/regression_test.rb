@@ -510,4 +510,355 @@ class RegressionTest < Minitest::Test
     assert_includes message, "Unable to calculate",
       "BUG #10 REGRESSION: Should handle zero/negative growth gracefully"
   end
+
+  # ===========================================================================
+  # BUG #11: Canceled trials counted as subscribers, new MRR, and churn
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: A trial that was canceled before ever converting still ended
+  # up with `status: canceled` and an `ends_at`. Once its (normalized) trial end
+  # date passed, every "became billable" check treated it as a paying
+  # subscription: it inflated total_subscribers, total_customers, new_customers,
+  # new_subscribers, new_mrr, churned_customers, churned_mrr, churn rate, and
+  # both summaries — even though the customer never paid a cent.
+  #
+  # Pay normalizes `trial_ends_at` down to `ended_at` on ended Stripe
+  # subscriptions (so canceled trials have ends_at == trial_ends_at), while
+  # Paddle leaves a stale future trial_ends_at (so ends_at < trial_ends_at).
+  #
+  # FIX: A subscription only counts as ever-billable if it actually ended
+  # AFTER billing started: `ends_at IS NULL OR ends_at > became_billable_at`.
+  # ===========================================================================
+
+  # Stripe-style canceled trial: Pay normalizes both fields from the same
+  # processor timestamp, so trial_ends_at == ends_at exactly
+  def create_stripe_style_canceled_trial(unit_amount: 9900)
+    trial_ended_at = 10.days.ago
+    subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: unit_amount,
+      interval: "month",
+      status: "canceled"
+    )
+    subscription.update!(created_at: 20.days.ago, trial_ends_at: trial_ended_at, ends_at: trial_ended_at)
+    subscription
+  end
+
+  # Paddle-style canceled trial: stale future trial_ends_at, past ends_at
+  def create_paddle_style_canceled_trial(unit_amount: 9900)
+    subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: unit_amount,
+      interval: "month",
+      status: "canceled"
+    )
+    subscription.update!(created_at: 20.days.ago, trial_ends_at: 5.days.from_now, ends_at: 10.days.ago)
+    subscription
+  end
+
+  def test_bug11_canceled_trial_is_not_a_total_subscriber_or_customer
+    create_stripe_style_canceled_trial
+    create_paddle_style_canceled_trial
+
+    assert_equal 0, Profitable.total_subscribers.to_i,
+      "BUG #11 REGRESSION: canceled trials never paid and are not subscribers"
+    assert_equal 0, Profitable.total_customers.to_i,
+      "BUG #11 REGRESSION: canceled trials never paid and are not customers"
+  end
+
+  def test_bug11_canceled_trial_is_not_a_new_subscriber_or_new_customer
+    create_stripe_style_canceled_trial
+
+    assert_equal 0, Profitable.new_subscribers(in_the_last: 30.days).to_i,
+      "BUG #11 REGRESSION: canceled trials are not new subscribers"
+    assert_equal 0, Profitable.new_customers(in_the_last: 30.days).to_i,
+      "BUG #11 REGRESSION: canceled trials are not new customers"
+  end
+
+  def test_bug11_canceled_trial_generates_no_new_mrr
+    create_stripe_style_canceled_trial
+
+    assert_equal 0, Profitable.new_mrr(in_the_last: 30.days).to_i,
+      "BUG #11 REGRESSION: canceled trials never billed, so they add no new MRR"
+  end
+
+  def test_bug11_canceled_trial_is_not_churn
+    create_stripe_style_canceled_trial
+    create_paddle_style_canceled_trial
+
+    assert_equal 0, Profitable.churned_customers(in_the_last: 30.days).to_i,
+      "BUG #11 REGRESSION: canceled trials are not churned customers"
+    assert_equal 0, Profitable.churned_mrr(in_the_last: 30.days).to_i,
+      "BUG #11 REGRESSION: canceled trials never contributed MRR, so they cannot churn it"
+    assert_equal 0, Profitable.churn(in_the_last: 30.days).to_f,
+      "BUG #11 REGRESSION: canceled trials do not belong in the churn numerator"
+  end
+
+  def test_bug11_canceled_trial_excluded_from_monthly_and_daily_summaries
+    travel_to Time.current.beginning_of_month + 14.days do
+      create_stripe_style_canceled_trial
+
+      monthly = Profitable.monthly_summary(months: 1).first
+      assert_equal 0, monthly[:new_subscribers], "BUG #11 REGRESSION: monthly new subscribers"
+      assert_equal 0, monthly[:churned_subscribers], "BUG #11 REGRESSION: monthly churned subscribers"
+      assert_equal 0, monthly[:new_mrr], "BUG #11 REGRESSION: monthly new MRR"
+      assert_equal 0, monthly[:churned_mrr], "BUG #11 REGRESSION: monthly churned MRR"
+
+      daily = Profitable.daily_summary(days: 30)
+      assert_equal 0, daily.sum { |d| d[:new_subscribers] }, "BUG #11 REGRESSION: daily new subscribers"
+      assert_equal 0, daily.sum { |d| d[:churned_subscribers] }, "BUG #11 REGRESSION: daily churned subscribers"
+    end
+  end
+
+  def test_bug11_customer_with_paid_charge_and_canceled_trial_is_still_a_customer
+    # The canceled trial must not count, but the paid one-off charge does.
+    customer = create_customer(processor: "stripe")
+    create_successful_charge(customer: customer, amount: 5000)
+    trial_ended_at = 10.days.ago
+    subscription = create_stripe_subscription_v10(
+      customer: customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    subscription.update!(created_at: 20.days.ago, trial_ends_at: trial_ended_at, ends_at: trial_ended_at)
+
+    assert_equal 1, Profitable.total_customers.to_i
+    assert_equal 0, Profitable.total_subscribers.to_i
+  end
+
+  def test_bug11_converted_then_canceled_subscription_still_counts_everywhere
+    # Control case: a trial that converted, paid, and churned later IS a real
+    # subscriber and real churn. The fix must not swallow genuine churn.
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    subscription.update!(created_at: 60.days.ago, trial_ends_at: 50.days.ago, ends_at: 10.days.ago)
+
+    assert_equal 1, Profitable.total_subscribers.to_i
+    assert_equal 1, Profitable.churned_customers(in_the_last: 30.days).to_i
+    assert_equal 9900, Profitable.churned_mrr(in_the_last: 30.days).to_i
+  end
+
+  # ===========================================================================
+  # BUG #12: Monthly summary churn rate had survivor bias
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: calculate_monthly_summary built its churn-rate denominator
+  # from subscriptions billable at the END of the whole window, which excluded
+  # every subscription that churned inside the window. Early months lost those
+  # subscribers from their denominators, overstating their churn rates.
+  #
+  # FIX: Load billability facts once and evaluate ends_at/pause per month.
+  # ===========================================================================
+
+  def test_bug12_monthly_churn_rate_includes_mid_window_churns_in_denominator
+    travel_to Time.current.beginning_of_month + 14.days do
+      month_zero = Time.current.beginning_of_month
+
+      # Two subscribers since before the window
+      survivor = create_stripe_subscription_v10(customer: @customer, unit_amount: 9900, interval: "month")
+      survivor.update!(created_at: month_zero - 4.months)
+
+      churned = create_stripe_subscription_v10(
+        customer: create_customer(processor: "stripe"),
+        unit_amount: 9900,
+        interval: "month",
+        status: "canceled"
+      )
+      # Churned in the middle of the month two months ago (inside the window)
+      churned.update!(created_at: month_zero - 4.months, ends_at: month_zero - 2.months + 14.days)
+
+      summary = Profitable.monthly_summary(months: 4)
+      churn_month = summary.find { |m| m[:month_date] == month_zero - 2.months }
+
+      assert_equal 1, churn_month[:churned_subscribers]
+      # 1 churned out of 2 billable at month start = 50%, not 100%
+      assert_in_delta 50.0, churn_month[:churn_rate], 0.01,
+        "BUG #12 REGRESSION: churn base must include subscribers who churned later in the window"
+    end
+  end
+
+  # ===========================================================================
+  # BUG #13: Summaries counted future trial conversions as already-new
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: monthly_summary/daily_summary queried events up to the end of
+  # the current month/day (a future timestamp). A subscription still on trial
+  # whose trial is scheduled to end later this month was already counted as a
+  # new subscriber and new MRR — even though it may never convert.
+  #
+  # FIX: Event windows are capped at Time.current.
+  # ===========================================================================
+
+  def test_bug13_trial_converting_later_this_month_is_not_a_new_subscriber_yet
+    travel_to Time.current.beginning_of_month + 10.days do
+      subscription = create_stripe_subscription_v10(
+        customer: @customer,
+        unit_amount: 9900,
+        interval: "month",
+        status: "trialing"
+      )
+      # Trial scheduled to convert in 5 days (still inside the current month)
+      subscription.update!(created_at: 10.days.ago, trial_ends_at: 5.days.from_now)
+
+      monthly = Profitable.monthly_summary(months: 1).first
+      assert_equal 0, monthly[:new_subscribers],
+        "BUG #13 REGRESSION: a future trial conversion is not a new subscriber yet"
+      assert_equal 0, monthly[:new_mrr],
+        "BUG #13 REGRESSION: a future trial conversion is not new MRR yet"
+
+      daily = Profitable.daily_summary(days: 7)
+      assert_equal 0, daily.sum { |d| d[:new_subscribers] },
+        "BUG #13 REGRESSION: future conversions must not appear in the daily summary"
+    end
+  end
+
+  # ===========================================================================
+  # BUG #14: time_to_next_mrr_milestone returned a bare String
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: Every other metric returns a Profitable::NumericResult, and
+  # the README documents `Profitable.time_to_next_mrr_milestone.to_readable`.
+  # The method returned a plain String, so following the README raised
+  # NoMethodError. (NumericResult's :string type existed for this but was
+  # never used.)
+  #
+  # FIX: Wrap all return paths in NumericResult.new(message, :string).
+  # ===========================================================================
+
+  def test_bug14_milestone_returns_numeric_result_with_to_readable
+    result = Profitable.time_to_next_mrr_milestone
+
+    assert_kind_of Profitable::NumericResult, result,
+      "BUG #14 REGRESSION: milestone should return a NumericResult like every other metric"
+    assert_equal "Unable to calculate. No MRR yet.", result.to_readable
+  end
+
+  def test_bug14_milestone_to_readable_works_on_the_happy_path
+    old_subscription = create_stripe_subscription_v10(customer: @customer, unit_amount: 10000, interval: "month")
+    old_subscription.update!(created_at: 60.days.ago)
+
+    create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 10000,
+      interval: "month"
+    )
+
+    result = Profitable.time_to_next_mrr_milestone
+
+    assert_kind_of Profitable::NumericResult, result
+    assert_includes result.to_readable, "days left to $"
+    # Still behaves like a string for backwards compatibility
+    assert_includes result, "MRR"
+  end
+
+  # ===========================================================================
+  # BUG #15: paid: false charges counted as revenue on SQLite
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: SQLite's json_extract returns JSON booleans as integers
+  # (0/1), and `0 != 'false'` is true in SQLite, so a charge with
+  # `paid: false` and no `status` key passed the paid_charges filter on
+  # SQLite (but not on PostgreSQL/MySQL, where ->> returns 'false').
+  # Rails 8 apps run SQLite in production, so adapters must agree.
+  #
+  # FIX: json_extract casts to TEXT on SQLite and paid_charges excludes
+  # both 'false' and '0'.
+  # ===========================================================================
+
+  def test_bug15_unpaid_charge_without_status_is_not_revenue
+    Pay::Charge.create!(
+      customer: @customer,
+      processor_id: "ch_unpaid_no_status",
+      amount: 7000,
+      currency: "usd",
+      object: { "paid" => false }
+    )
+
+    assert_equal 0, Profitable.all_time_revenue.to_i,
+      "BUG #15 REGRESSION: paid: false charges are not revenue, regardless of database adapter"
+    assert_equal 0, Profitable.total_customers.to_i
+  end
+
+  def test_bug15_paid_charge_without_status_still_counts
+    Pay::Charge.create!(
+      customer: @customer,
+      processor_id: "ch_paid_no_status",
+      amount: 7000,
+      currency: "usd",
+      object: { "paid" => true }
+    )
+
+    assert_equal 7000, Profitable.all_time_revenue.to_i
+  end
+
+  def test_bug15_legacy_data_column_unpaid_charge_is_not_revenue
+    Pay::Charge.create!(
+      customer: @customer,
+      processor_id: "ch_unpaid_legacy",
+      amount: 7000,
+      currency: "usd",
+      data: { "paid" => false }
+    )
+
+    assert_equal 0, Profitable.all_time_revenue.to_i
+  end
+
+  def test_bug15_zero_amount_charges_are_not_revenue_or_customers
+    create_successful_charge(customer: @customer, amount: 0)
+
+    assert_equal 0, Profitable.all_time_revenue.to_i
+    assert_equal 0, Profitable.total_customers.to_i
+  end
+
+  # ===========================================================================
+  # BUG #16: Braintree/Lemon Squeezy statuses leaked into billable metrics
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: Braintree emits 'expired' (subscription completed its billing
+  # cycles) and 'pending' (future start date, never billed) statuses; Lemon
+  # Squeezy also emits 'expired'. Neither was in the status constants, so both
+  # fell through every guard and counted as billable: expired/pending
+  # subscriptions inflated MRR-style scopes, active_subscribers, and
+  # total_subscribers, and expirations never showed up as churn.
+  #
+  # FIX: 'expired' joined CHURNED_STATUSES (it ends at ends_at like any other
+  # churn) and 'pending' joined NEVER_BILLABLE_SUBSCRIPTION_STATUSES.
+  # ===========================================================================
+
+  def test_bug16_expired_subscription_is_not_billable_and_counts_as_churn
+    expired = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "expired"
+    )
+    expired.update!(created_at: 60.days.ago, ends_at: 10.days.ago)
+
+    assert_equal 0, Profitable.mrr.to_i, "BUG #16 REGRESSION: expired subscriptions have no MRR"
+    assert_equal 0, Profitable.active_subscribers.to_i
+    assert_equal 1, Profitable.total_subscribers.to_i, "expired subscriptions were once billable"
+    assert_equal 1, Profitable.churned_customers(in_the_last: 30.days).to_i,
+      "BUG #16 REGRESSION: an expiration is a churn event"
+    assert_equal 9900, Profitable.churned_mrr(in_the_last: 30.days).to_i
+  end
+
+  def test_bug16_pending_subscription_is_not_billable_anywhere
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "pending"
+    )
+
+    assert_equal 0, Profitable.mrr.to_i, "BUG #16 REGRESSION: pending subscriptions have not billed yet"
+    assert_equal 0, Profitable.active_subscribers.to_i
+    assert_equal 0, Profitable.total_subscribers.to_i
+    assert_equal 0, Profitable.new_subscribers(in_the_last: 30.days).to_i
+    assert_equal 0, Profitable.new_mrr(in_the_last: 30.days).to_i
+  end
 end

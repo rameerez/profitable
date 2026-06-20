@@ -6,40 +6,11 @@ require_relative 'processors/paddle_classic_processor'
 
 module Profitable
   class MrrCalculator
+    # Current MRR is just the historical MRR snapshot taken right now.
+    # The billable-subscription query lives in Profitable's metrics module so
+    # current MRR, MRR-at-date, and growth rates can never drift apart.
     def self.calculate
-      total_mrr = 0
-
-      # Do not use Pay::Subscription.active here.
-      # Pay's active scope is designed for entitlement/access checks and can include
-      # free-trial access. MRR needs subscriptions that are billable right now.
-      subscriptions = Pay::Subscription
-        .where.not(status: Profitable::NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
-        .where(
-          "(pay_subscriptions.status NOT IN (?) OR (pay_subscriptions.trial_ends_at IS NOT NULL AND pay_subscriptions.trial_ends_at <= ?))",
-          Profitable::TRIAL_SUBSCRIPTION_STATUSES,
-          Time.current
-        )
-        .where(
-          "(pay_subscriptions.status NOT IN (?) OR pay_subscriptions.ends_at IS NOT NULL)",
-          Profitable::CHURNED_STATUSES
-        )
-        .where(
-          "(pay_subscriptions.status != ? OR pay_subscriptions.pause_starts_at IS NOT NULL)",
-          'paused'
-        )
-        .where('COALESCE(pay_subscriptions.trial_ends_at, pay_subscriptions.created_at) <= ?', Time.current)
-        .where('pay_subscriptions.pause_starts_at IS NULL OR pay_subscriptions.pause_starts_at > ?', Time.current)
-        .where('pay_subscriptions.ends_at IS NULL OR pay_subscriptions.ends_at > ?', Time.current)
-        .includes(:customer)
-        .select('pay_subscriptions.*, pay_customers.processor as customer_processor')
-        .joins(:customer)
-
-      subscriptions.find_each do |subscription|
-        mrr = process_subscription(subscription)
-        total_mrr += mrr if mrr.is_a?(Numeric) && mrr > 0
-      end
-
-      total_mrr
+      Profitable.send(:calculate_mrr_at, Time.current)
     rescue => e
       Rails.logger.error("Error calculating total MRR: #{e.message}")
       raise Profitable::Error, "Failed to calculate MRR: #{e.message}"
@@ -62,15 +33,16 @@ module Profitable
       0
     end
 
-    # Pay gem v10+ stores Stripe objects in the `object` column,
-    # while older versions used `data`. This method provides backwards compatibility.
     def self.subscription_data(subscription)
-      subscription.try(:object) || subscription.try(:data)
+      Processors::Base.subscription_data(subscription)
     end
 
     def self.processor_for(processor_name)
-      # MRR parsing is only implemented for processors with explicit adapters below.
-      # Unknown processors safely fall back to Base and contribute zero until supported.
+      # MRR parsing needs the processor's price payload stored locally, which Pay
+      # only does for Stripe (in `object` on Pay v10+, `data` before that).
+      # The remaining adapters only apply when that payload has been backfilled by
+      # the application; otherwise unknown or payload-less subscriptions safely
+      # contribute zero instead of guessing.
       case processor_name
       when 'stripe'
         Processors::StripeProcessor

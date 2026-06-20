@@ -1,5 +1,20 @@
 # `profitable`
 
+## [0.6.0] - 2026-06-11
+
+Accuracy-focused release: every metric was re-audited line by line against the actual data `pay` (7.x–11.x) stores.
+
+- **Fix canceled trials polluting nearly every flow metric**: a trial that was canceled without ever converting no longer counts in `total_subscribers`, `total_customers`, `new_customers`, `new_subscribers`, `new_mrr`, `churned_customers`, `churned_mrr`, `churn`, or the monthly/daily summaries. A subscription now only counts as ever-billable if it ended *after* billing started
+- **Fix survivor bias in `monthly_summary` churn rates**: the churn denominator now includes subscribers who churned later inside the window, so early months no longer overstate churn
+- **Fix summaries counting future trial conversions**: a trial scheduled to convert later this month/day no longer appears as a new subscriber (and new MRR) before it actually converts
+- **Fix `paid: false` charges counting as revenue on SQLite**: JSON booleans surface as integers on SQLite (vs. text on PostgreSQL/MySQL); JSON extraction is now text-cast so all adapters filter identically (Rails 8 runs SQLite in production)
+- **Handle Braintree/Lemon Squeezy statuses**: `expired` now counts as churn (at `ends_at`) instead of billable-forever, and `pending` (future start date, never billed) is excluded everywhere
+- **Fix `time_to_next_mrr_milestone` returning a bare String**: it now returns a `NumericResult` like every other metric, so the documented `.to_readable` works (plain string comparisons still behave the same)
+- **Correct the processor coverage docs**: `pay` only stores subscription price payloads locally for Stripe, so Braintree/Paddle subscriptions contribute 0 to MRR-style metrics unless the payload is backfilled — the README previously overstated this; charge-based and lifecycle-based metrics remain fully portable across all processors
+- DRY consolidation: MRR "billable right now" and "billable at date" are now literally the same query (`MrrCalculator.calculate` delegates to the shared snapshot), churn-event queries are defined once and reused by all metrics and summaries, and `subscription_data` has a single source of truth
+- `MrrCalculator.calculate` streams subscriptions in batches (`find_each`) everywhere, keeping memory flat on large datasets
+- Test coverage increased to ~98% line / ~91% branch, including regression tests for every bug above, exercised against Pay 7.3–11.x and Rails 7.2–8.1
+
 ## [0.5.0] - 2026-03-19
 - Add `Profitable.ttm_revenue` for trailing twelve-month revenue
 - Add `Profitable.ttm` as a founder-friendly alias for `ttm_revenue`
