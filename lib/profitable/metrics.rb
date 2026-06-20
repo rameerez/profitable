@@ -170,6 +170,18 @@ module Profitable
       calculate_period_data(in_the_last)
     end
 
+    # Historical MRR snapshot in cents.
+    # Exposed for MrrCalculator so current MRR and historical MRR use exactly
+    # the same query without reaching through private methods with `send`.
+    def calculate_mrr_at(date)
+      # Find subscriptions that were active AT the given date:
+      # - Started billing before or on that date
+      # - Not ended before that date (ends_at is nil OR ends_at > date)
+      # - Not paused at that date
+      # - Not still in a free trial at that date
+      mrr_sum(billable_subscription_scope_at(date))
+    end
+
     private
 
     # Helper to load subscriptions with processor info from customer
@@ -302,8 +314,7 @@ module Profitable
     # used `data`. Real Pay 7-9 schemas do not have an `object` column, so only
     # reference columns that are actually present in the host app.
     def charge_json_value_sql(key)
-      columns = %w[object data].select { |column| Pay::Charge.column_names.include?(column) }
-      extractions = columns.map { |column| json_extract("pay_charges.#{column}", key) }
+      extractions = charge_payload_columns.map { |column| json_extract("pay_charges.#{column}", key) }
 
       case extractions.length
       when 0
@@ -313,6 +324,10 @@ module Profitable
       else
         "COALESCE(#{extractions.join(', ')})"
       end
+    end
+
+    def charge_payload_columns
+      @charge_payload_columns ||= %w[object data].select { |column| Pay::Charge.column_names.include?(column) }
     end
 
     # Revenue metrics should reflect net cash collected, not gross billed amounts.
@@ -501,15 +516,6 @@ module Profitable
       target_date = Time.current + days_to_milestone.days
 
       "#{days_to_milestone} days left to $#{number_with_delimiter(next_milestone)} MRR (#{target_date.strftime('%b %d, %Y')})"
-    end
-
-    def calculate_mrr_at(date)
-      # Find subscriptions that were active AT the given date:
-      # - Started billing before or on that date
-      # - Not ended before that date (ends_at is nil OR ends_at > date)
-      # - Not paused at that date
-      # - Not still in a free trial at that date
-      mrr_sum(billable_subscription_scope_at(date))
     end
 
     def calculate_period_data(period)

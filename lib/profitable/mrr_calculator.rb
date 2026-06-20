@@ -10,7 +10,7 @@ module Profitable
     # The billable-subscription query lives in Profitable's metrics module so
     # current MRR, MRR-at-date, and growth rates can never drift apart.
     def self.calculate
-      Profitable.send(:calculate_mrr_at, Time.current)
+      Profitable.calculate_mrr_at(Time.current)
     rescue => e
       Rails.logger.error("Error calculating total MRR: #{e.message}")
       raise Profitable::Error, "Failed to calculate MRR: #{e.message}"

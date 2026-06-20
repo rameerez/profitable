@@ -1,12 +1,9 @@
 # frozen_string_literal: true
 
-# Third-party dependencies must load first: NumericResult and the metrics
-# module mix in ActionView helpers and use ActiveSupport durations at
-# definition time, so the gem cannot rely on the host app (for example an
-# API-only Rails app) having loaded these frameworks already.
-require "rails"
+# Third-party dependencies must load before the metrics module: NumericResult
+# mixes in ActionView helpers and metrics use ActiveSupport durations at
+# definition time.
 require "pay"
-require "active_support"
 require "active_support/time"
 require "active_support/core_ext/numeric/conversions"
 require "active_support/core_ext/string/filters"

@@ -249,7 +249,7 @@ class RegressionTest < Minitest::Test
     new_sub.update!(created_at: 15.days.ago)
 
     # MRR at 45 days ago should include churned_sub but NOT new_sub
-    historical_mrr = Profitable.send(:calculate_mrr_at, 45.days.ago)
+    historical_mrr = Profitable.calculate_mrr_at(45.days.ago)
 
     assert_equal 5000, historical_mrr, "BUG #5 REGRESSION: Should calculate MRR at historical date"
   end
@@ -811,8 +811,7 @@ class RegressionTest < Minitest::Test
   def test_bug15_legacy_pay_schema_without_object_column_still_counts_data_charges
     create_successful_charge_legacy(customer: @customer, amount: 4200)
 
-    legacy_column_names = Pay::Charge.column_names - ["object"]
-    Pay::Charge.stubs(:column_names).returns(legacy_column_names)
+    Profitable.stubs(:charge_payload_columns).returns(["data"])
 
     assert_equal 4200, Profitable.all_time_revenue.to_i,
       "BUG #15 REGRESSION: Pay 7-9 schemas do not have pay_charges.object"
@@ -827,8 +826,7 @@ class RegressionTest < Minitest::Test
       data: { "paid" => false }
     )
 
-    legacy_column_names = Pay::Charge.column_names - ["object"]
-    Pay::Charge.stubs(:column_names).returns(legacy_column_names)
+    Profitable.stubs(:charge_payload_columns).returns(["data"])
 
     assert_equal 0, Profitable.all_time_revenue.to_i,
       "BUG #15 REGRESSION: Pay 7-9 charge filtering must not reference object"

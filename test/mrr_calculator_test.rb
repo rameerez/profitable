@@ -431,7 +431,7 @@ class MrrCalculatorTest < Minitest::Test
 
     # Current MRR and the MRR-at-date snapshot must be the same query;
     # if these ever diverge, growth rates stop being trustworthy.
-    assert_equal Profitable.send(:calculate_mrr_at, Time.current), Profitable::MrrCalculator.calculate
+    assert_equal Profitable.calculate_mrr_at(Time.current), Profitable::MrrCalculator.calculate
   end
 
   # ============================================================================
