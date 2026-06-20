@@ -200,7 +200,7 @@ module Profitable
     # We intentionally do not reuse Pay::Subscription.active here.
     # Pay's active scope is access-oriented and can include free-trial access,
     # while profitable needs billable subscription semantics for metrics.
-    def subscription_is_billable_by(date, scope = Pay::Subscription.all)
+    def subscription_has_billable_lifecycle_by(date, scope = Pay::Subscription.all)
       scope
         .where.not(status: NEVER_BILLABLE_SUBSCRIPTION_STATUSES)
         .where(
@@ -212,17 +212,21 @@ module Profitable
           "(pay_subscriptions.status NOT IN (?) OR pay_subscriptions.ends_at IS NOT NULL)",
           CHURNED_STATUSES
         )
+        .where(subscription_was_billable_before_ending_sql)
+    end
+
+    def subscription_is_billable_by(date, scope = Pay::Subscription.all)
+      subscription_has_billable_lifecycle_by(date, scope)
         .where(
           "(pay_subscriptions.status != ? OR pay_subscriptions.pause_starts_at IS NOT NULL)",
           'paused'
         )
-        .where(subscription_was_billable_before_ending_sql)
     end
 
     # Any subscription that has ever crossed into a paid/billable state,
     # even if it later churned. This is used for "ever" style counts.
     def ever_billable_subscription_scope(scope = Pay::Subscription.all)
-      subscription_is_billable_by(Time.current, scope)
+      subscription_has_billable_lifecycle_by(Time.current, scope)
         .where("#{subscription_became_billable_at_sql} <= ?", Time.current)
     end
 
@@ -244,7 +248,7 @@ module Profitable
     # Historical "new subscriber" / "new MRR" event window.
     # The event date is when billing starts, not when the subscription record is created.
     def billable_subscription_events_in_period(period_start, period_end, scope = Pay::Subscription.all)
-      subscription_is_billable_by(period_end, scope)
+      subscription_has_billable_lifecycle_by(period_end, scope)
         .where("#{subscription_became_billable_at_sql} BETWEEN ? AND ?", period_start, period_end)
     end
 
@@ -295,9 +299,20 @@ module Profitable
     end
 
     # Pay gem v10+ stores charge payloads in the `object` column, older versions
-    # used `data`. We check both for backwards compatibility.
+    # used `data`. Real Pay 7-9 schemas do not have an `object` column, so only
+    # reference columns that are actually present in the host app.
     def charge_json_value_sql(key)
-      "COALESCE(#{json_extract('pay_charges.object', key)}, #{json_extract('pay_charges.data', key)})"
+      columns = %w[object data].select { |column| Pay::Charge.column_names.include?(column) }
+      extractions = columns.map { |column| json_extract("pay_charges.#{column}", key) }
+
+      case extractions.length
+      when 0
+        'NULL'
+      when 1
+        extractions.first
+      else
+        "COALESCE(#{extractions.join(', ')})"
+      end
     end
 
     # Revenue metrics should reflect net cash collected, not gross billed amounts.
@@ -467,7 +482,7 @@ module Profitable
     end
 
     def calculate_time_to_next_mrr_milestone
-      current_mrr = (mrr.to_i) / 100  # Convert cents to dollars
+      current_mrr = mrr.to_f / 100  # Convert cents to dollars
       return "Unable to calculate. No MRR yet." if current_mrr <= 0
 
       next_milestone = MRR_MILESTONES.find { |milestone| milestone > current_mrr }
@@ -583,7 +598,7 @@ module Profitable
 
         total_at_start = churn_base_records
           .select do |_, billable_at, ends_at, pause_starts_at|
-            billable_at < month_start &&
+            billable_at <= month_start &&
               (ends_at.nil? || ends_at > month_start) &&
               (pause_starts_at.nil? || pause_starts_at > month_start)
           end

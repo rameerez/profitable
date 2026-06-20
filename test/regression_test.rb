@@ -808,6 +808,32 @@ class RegressionTest < Minitest::Test
     assert_equal 0, Profitable.all_time_revenue.to_i
   end
 
+  def test_bug15_legacy_pay_schema_without_object_column_still_counts_data_charges
+    create_successful_charge_legacy(customer: @customer, amount: 4200)
+
+    legacy_column_names = Pay::Charge.column_names - ["object"]
+    Pay::Charge.stubs(:column_names).returns(legacy_column_names)
+
+    assert_equal 4200, Profitable.all_time_revenue.to_i,
+      "BUG #15 REGRESSION: Pay 7-9 schemas do not have pay_charges.object"
+  end
+
+  def test_bug15_legacy_pay_schema_without_object_column_still_excludes_unpaid_data_charges
+    Pay::Charge.create!(
+      customer: @customer,
+      processor_id: "ch_unpaid_legacy_schema",
+      amount: 7000,
+      currency: "usd",
+      data: { "paid" => false }
+    )
+
+    legacy_column_names = Pay::Charge.column_names - ["object"]
+    Pay::Charge.stubs(:column_names).returns(legacy_column_names)
+
+    assert_equal 0, Profitable.all_time_revenue.to_i,
+      "BUG #15 REGRESSION: Pay 7-9 charge filtering must not reference object"
+  end
+
   def test_bug15_zero_amount_charges_are_not_revenue_or_customers
     create_successful_charge(customer: @customer, amount: 0)
 
@@ -860,5 +886,110 @@ class RegressionTest < Minitest::Test
     assert_equal 0, Profitable.total_subscribers.to_i
     assert_equal 0, Profitable.new_subscribers(in_the_last: 30.days).to_i
     assert_equal 0, Profitable.new_mrr(in_the_last: 30.days).to_i
+  end
+
+  # ===========================================================================
+  # BUG #17: Paused subscriptions disappeared from ever/new subscriber metrics
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: The shared "billable" predicate excluded `status: paused`
+  # subscriptions unless `pause_starts_at` was present. That is correct for
+  # current MRR, but too strict for lifecycle metrics: Lemon Squeezy can store
+  # paused subscriptions without a local pause start date, and those customers
+  # still became subscribers before pausing.
+  #
+  # FIX: Split "has this subscription ever crossed into a billable lifecycle?"
+  # from "is this subscription billable at this exact date?"
+  # ===========================================================================
+
+  def test_bug17_paused_subscription_without_pause_date_still_counts_as_ever_subscriber
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "paused"
+    )
+    subscription.update!(created_at: 10.days.ago, pause_starts_at: nil)
+
+    assert_equal 0, Profitable.mrr.to_i,
+      "BUG #17 REGRESSION: paused subscriptions are not current MRR"
+    assert_equal 0, Profitable.active_subscribers.to_i,
+      "BUG #17 REGRESSION: paused subscriptions are not active subscribers"
+    assert_equal 1, Profitable.total_subscribers.to_i,
+      "BUG #17 REGRESSION: paused subscriptions still became subscribers"
+    assert_equal 1, Profitable.total_customers.to_i,
+      "BUG #17 REGRESSION: paused subscribers are monetized customers"
+  end
+
+  def test_bug17_paused_subscription_without_pause_date_still_counts_as_new_subscriber
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "paused"
+    )
+    subscription.update!(created_at: 10.days.ago, pause_starts_at: nil)
+
+    assert_equal 1, Profitable.new_subscribers(in_the_last: 30.days).to_i,
+      "BUG #17 REGRESSION: pause state must not erase the original conversion"
+    assert_equal 9900, Profitable.new_mrr(in_the_last: 30.days).to_i,
+      "BUG #17 REGRESSION: new MRR is the subscription's full conversion MRR"
+  end
+
+  # ===========================================================================
+  # BUG #18: Sub-dollar MRR was treated as no MRR in milestone messaging
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: `time_to_next_mrr_milestone` converted cents to dollars with
+  # integer division. Positive MRR below $1 became 0, so the method returned
+  # "No MRR yet" even though there was real recurring revenue.
+  #
+  # FIX: Convert cents to a float dollar amount before choosing the next
+  # milestone and checking for zero MRR.
+  # ===========================================================================
+
+  def test_bug18_sub_dollar_mrr_is_not_reported_as_no_mrr
+    create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 50,
+      interval: "month"
+    )
+
+    result = Profitable.time_to_next_mrr_milestone.to_readable
+
+    refute_equal "Unable to calculate. No MRR yet.", result,
+      "BUG #18 REGRESSION: positive MRR below $1 is still MRR"
+    assert_equal "Unable to calculate. Need more data or positive growth.", result
+  end
+
+  # ===========================================================================
+  # BUG #19: Monthly churn base excluded subscriptions billable at month start
+  # ===========================================================================
+  #
+  # ORIGINAL BUG: `monthly_summary` used `billable_at < month_start` for churn
+  # denominators, while the canonical churn helper uses inclusive period starts.
+  # A subscriber whose paid access started exactly at midnight on the first day
+  # of the month could churn later that same month but be absent from the base.
+  #
+  # FIX: Monthly churn denominators use `billable_at <= month_start`.
+  # ===========================================================================
+
+  def test_bug19_monthly_churn_base_includes_subscribers_billable_exactly_at_month_start
+    travel_to Time.current.beginning_of_month + 14.days do
+      month_start = Time.current.beginning_of_month
+      subscription = create_stripe_subscription_v10(
+        customer: @customer,
+        unit_amount: 9900,
+        interval: "month",
+        status: "canceled"
+      )
+      subscription.update!(created_at: month_start, ends_at: month_start + 7.days)
+
+      month = Profitable.monthly_summary(months: 1).first
+
+      assert_equal 1, month[:churned_subscribers]
+      assert_in_delta 100.0, month[:churn_rate], 0.01,
+        "BUG #19 REGRESSION: month-start subscribers belong in the starting base"
+    end
   end
 end

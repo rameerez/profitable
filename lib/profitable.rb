@@ -4,6 +4,7 @@
 # module mix in ActionView helpers and use ActiveSupport durations at
 # definition time, so the gem cannot rely on the host app (for example an
 # API-only Rails app) having loaded these frameworks already.
+require "rails"
 require "pay"
 require "active_support"
 require "active_support/time"
