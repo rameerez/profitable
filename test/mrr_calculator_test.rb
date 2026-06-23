@@ -409,6 +409,39 @@ class MrrCalculatorTest < Minitest::Test
     assert_equal 0, Profitable::MrrCalculator.process_subscription(subscription)
   end
 
+  def test_calculate_wraps_unexpected_errors_in_profitable_error
+    Profitable.stubs(:mrr_at).raises(StandardError.new("database exploded"))
+
+    error = assert_raises(Profitable::Error) { Profitable::MrrCalculator.calculate }
+
+    assert_includes error.message, "database exploded"
+  end
+
+  def test_calculate_reraises_profitable_errors_without_double_wrapping
+    Profitable.stubs(:mrr_at).raises(Profitable::Error.new("already wrapped"))
+
+    error = assert_raises(Profitable::Error) { Profitable::MrrCalculator.calculate }
+
+    assert_equal "already wrapped", error.message
+  end
+
+  def test_calculate_matches_the_mrr_at_snapshot_for_now
+    create_stripe_subscription_v10(
+      customer: @stripe_customer,
+      unit_amount: 9900,
+      interval: "month"
+    )
+    create_braintree_subscription(
+      customer: @braintree_customer,
+      price: 3000,
+      interval: "month"
+    )
+
+    # Current MRR and the MRR-at-date snapshot must be the same query;
+    # if these ever diverge, growth rates stop being trustworthy.
+    assert_equal Profitable.mrr_at(Time.current).to_i, Profitable::MrrCalculator.calculate
+  end
+
   # ============================================================================
   # SUBSCRIPTION_DATA: BACKWARDS COMPATIBILITY
   # ============================================================================

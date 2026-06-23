@@ -3,6 +3,12 @@ module Profitable
     class Base
       attr_reader :subscription
 
+      # Pay gem v10+ stores processor payloads in the `object` column,
+      # while older versions used `data`. Single source of truth for that fallback.
+      def self.subscription_data(subscription)
+        subscription.try(:object) || subscription.try(:data)
+      end
+
       def initialize(subscription)
         @subscription = subscription
       end
@@ -13,10 +19,8 @@ module Profitable
 
       protected
 
-      # Pay gem v10+ stores Stripe objects in the `object` column,
-      # while older versions used `data`. This method provides backwards compatibility.
       def subscription_data
-        subscription.try(:object) || subscription.try(:data)
+        self.class.subscription_data(subscription)
       end
 
       # Converts a billing amount to its monthly equivalent rate.

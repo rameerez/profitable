@@ -152,10 +152,11 @@ class JsonHelpersTest < Minitest::Test
   # ============================================================================
 
   def test_generates_sqlite_syntax
-    # Our test environment uses SQLite
+    # Our test environment uses SQLite. The CAST keeps JSON booleans (which
+    # SQLite returns as integers) comparable as text, like PostgreSQL/MySQL.
     result = @helper.json_extract('pay_charges.object', 'paid')
 
-    assert_equal "json_extract(pay_charges.object, '$.paid')", result
+    assert_equal "CAST(json_extract(pay_charges.object, '$.paid') AS TEXT)", result
   end
 
   # ============================================================================

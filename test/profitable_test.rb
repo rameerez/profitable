@@ -34,6 +34,42 @@ class ProfitableTest < Minitest::Test
     assert_equal 9900, Profitable.mrr.to_i
   end
 
+  def test_mrr_at_returns_numeric_result
+    assert_kind_of Profitable::NumericResult, Profitable.mrr_at(Time.current)
+  end
+
+  def test_mrr_at_calculates_historical_snapshot
+    churned_subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month",
+      status: "canceled"
+    )
+    churned_subscription.update!(created_at: 60.days.ago, ends_at: 10.days.ago)
+
+    current_subscription = create_stripe_subscription_v10(
+      customer: create_customer(processor: "stripe"),
+      unit_amount: 4900,
+      interval: "month"
+    )
+    current_subscription.update!(created_at: 5.days.ago)
+
+    assert_equal 9900, Profitable.mrr_at(30.days.ago).to_i
+    assert_equal 4900, Profitable.mrr_at(Time.current).to_i
+  end
+
+  def test_mrr_at_respects_pause_state_at_snapshot_date
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month"
+    )
+    subscription.update!(created_at: 60.days.ago, pause_starts_at: 30.days.ago)
+
+    assert_equal 9900, Profitable.mrr_at(45.days.ago).to_i
+    assert_equal 0, Profitable.mrr_at(15.days.ago).to_i
+  end
+
   def test_mrr_excludes_subscriptions_still_on_trial_even_if_status_is_active
     subscription = create_stripe_subscription_v10(
       customer: @customer,
@@ -815,7 +851,9 @@ class ProfitableTest < Minitest::Test
       interval: "month",
       status: "canceled"
     )
-    churned_sub.update!(ends_at: 10.days.ago)
+    # Churn fixtures must have existed before ends_at to satisfy the
+    # billable-before-ending guard.
+    churned_sub.update!(created_at: 45.days.ago, ends_at: 10.days.ago)
 
     assert_equal 1, Profitable.churned_customers(in_the_last: 30.days).to_i
   end
@@ -1218,69 +1256,76 @@ class ProfitableTest < Minitest::Test
   end
 
   def test_monthly_summary_uses_trial_conversion_month_for_new_subscribers_and_new_mrr
-    trial_subscription = create_stripe_subscription_v10(
-      customer: @customer,
-      unit_amount: 9900,
-      interval: "month",
-      status: "active"
-    )
-    trial_subscription.update!(created_at: 40.days.ago, trial_ends_at: 5.days.ago)
+    # Mid-month so the day-based offsets always land in the intended months
+    travel_to Time.current.beginning_of_month + 14.days do
+      trial_subscription = create_stripe_subscription_v10(
+        customer: @customer,
+        unit_amount: 9900,
+        interval: "month",
+        status: "active"
+      )
+      trial_subscription.update!(created_at: 40.days.ago, trial_ends_at: 5.days.ago)
 
-    result = Profitable.monthly_summary(months: 2)
-    current_month = result.last
-    previous_month = result.first
+      result = Profitable.monthly_summary(months: 2)
+      current_month = result.last
+      previous_month = result.first
 
-    assert_equal 1, current_month[:new_subscribers]
-    assert_equal 9900, current_month[:new_mrr]
-    assert_equal 0, previous_month[:new_subscribers]
-    assert_equal 0, previous_month[:new_mrr]
+      assert_equal 1, current_month[:new_subscribers]
+      assert_equal 9900, current_month[:new_mrr]
+      assert_equal 0, previous_month[:new_subscribers]
+      assert_equal 0, previous_month[:new_mrr]
+    end
   end
 
   def test_monthly_summary_captures_churned_subscribers
-    churned_sub = create_stripe_subscription_v10(
-      customer: @customer,
-      unit_amount: 5000,
-      interval: "month",
-      status: "canceled"
-    )
-    churned_sub.update!(
-      created_at: 60.days.ago,
-      ends_at: 5.days.ago
-    )
+    travel_to Time.current.beginning_of_month + 14.days do
+      churned_sub = create_stripe_subscription_v10(
+        customer: @customer,
+        unit_amount: 5000,
+        interval: "month",
+        status: "canceled"
+      )
+      churned_sub.update!(
+        created_at: 60.days.ago,
+        ends_at: 5.days.ago
+      )
 
-    result = Profitable.monthly_summary(months: 1)
-    current_month = result.first
+      result = Profitable.monthly_summary(months: 1)
+      current_month = result.first
 
-    assert_equal 1, current_month[:churned_subscribers]
-    assert_equal 5000, current_month[:churned_mrr]
+      assert_equal 1, current_month[:churned_subscribers]
+      assert_equal 5000, current_month[:churned_mrr]
+    end
   end
 
   def test_monthly_summary_calculates_net_correctly
-    # New subscriber this month
-    create_stripe_subscription_v10(
-      customer: @customer,
-      unit_amount: 9900,
-      interval: "month"
-    )
+    travel_to Time.current.beginning_of_month + 14.days do
+      # New subscriber this month
+      create_stripe_subscription_v10(
+        customer: @customer,
+        unit_amount: 9900,
+        interval: "month"
+      )
 
-    # Churned subscriber this month
-    churned_customer = create_customer(processor: "stripe")
-    churned_sub = create_stripe_subscription_v10(
-      customer: churned_customer,
-      unit_amount: 5000,
-      interval: "month",
-      status: "canceled"
-    )
-    churned_sub.update!(
-      created_at: 60.days.ago,
-      ends_at: 5.days.ago
-    )
+      # Churned subscriber this month
+      churned_customer = create_customer(processor: "stripe")
+      churned_sub = create_stripe_subscription_v10(
+        customer: churned_customer,
+        unit_amount: 5000,
+        interval: "month",
+        status: "canceled"
+      )
+      churned_sub.update!(
+        created_at: 60.days.ago,
+        ends_at: 5.days.ago
+      )
 
-    result = Profitable.monthly_summary(months: 1)
-    current_month = result.first
+      result = Profitable.monthly_summary(months: 1)
+      current_month = result.first
 
-    assert_equal 0, current_month[:net_subscribers]  # 1 new - 1 churned
-    assert_equal 4900, current_month[:net_mrr]        # 9900 - 5000
+      assert_equal 0, current_month[:net_subscribers]  # 1 new - 1 churned
+      assert_equal 4900, current_month[:net_mrr]        # 9900 - 5000
+    end
   end
 
   def test_monthly_summary_ordered_oldest_first

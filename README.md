@@ -15,7 +15,7 @@
 
 Usually, you would look into your Stripe Dashboard or query the Stripe API to know your MRR / ARR / churn – but when you're using `pay`, you already have that data available and auto synced to your own database. So we can leverage it to make handy, composable ActiveRecord queries that you can reuse in any part of your Rails app (dashboards, internal pages, reports, status messages, etc.)
 
-Think doing something like: `"Current MRR: $#{Profitable.mrr}"` or `"Your app is worth $#{Profitable.valuation_estimate("3x")} at a 3x valuation"`
+Think doing something like: `"Current MRR: $#{Profitable.mrr}"` or `"Your app is worth $#{Profitable.estimated_valuation("3x")} at a 3x valuation"`
 
 ## Installation
 
@@ -28,23 +28,18 @@ Then run `bundle install`.
 
 Provided you have a valid [`pay`](https://github.com/pay-rails/pay) installation (`Pay::Customer`, `Pay::Subscription`, `Pay::Charge`, etc.) everything is already set up and you can just start using [`Profitable` methods](#main-profitable-methods) right away.
 
-Current MRR processor coverage is verified for `stripe`, `braintree`, `paddle_billing`, and `paddle_classic`.
-
 For Stripe, metered subscription items are intentionally excluded from fixed run-rate metrics like `mrr`, `arr`, `new_mrr`, and `churned_mrr`.
 
 > [!IMPORTANT]
-> `profitable` does **not** yet normalize MRR for every processor that `pay` supports.
-> If a subscription comes from an unsupported processor such as `lemon_squeezy`, it will currently contribute `0` to processor-adapter-dependent metrics until an adapter is added.
+> MRR-style metrics need each subscription's price payload, and `pay` only stores that payload locally for **Stripe** (in the `object` column on Pay v10+, and in `data['subscription_items']` on Pay 7–9). So:
 >
-> Verified processor-adapter coverage today:
-> - `stripe`
-> - `braintree`
-> - `paddle_billing`
-> - `paddle_classic`
+> - **Subscription amount parsing (full support): `stripe`.**
+> - `braintree`, `paddle_billing`, and `paddle_classic` subscriptions contribute `0` to amount-derived metrics out of the box, because `pay` does not persist their price payloads locally. `profitable` ships parsing adapters for them, so they are supported if your app backfills `pay_subscriptions.object` with the processor's subscription payload — otherwise they are counted in subscriber/churn metrics but add `0` MRR (never wrong amounts).
+> - Subscriptions from any other processor (e.g. `lemon_squeezy`) also contribute `0` to amount-derived metrics until an adapter is added.
 >
 > Metrics that depend on processor-specific subscription amount parsing include `mrr`, `arr`, `new_mrr`, `churned_mrr`, `mrr_growth`, `mrr_growth_rate`, `lifetime_value`, `time_to_next_mrr_milestone`, and MRR-derived fields in summaries.
 >
-> Metrics based primarily on `Pay::Charge` and generic subscription lifecycle fields are much more portable across processors, including `all_time_revenue`, `revenue_in_period`, `ttm_revenue`, `revenue_run_rate`, customer counts, subscriber counts, and churn calculations.
+> Metrics based on `Pay::Charge` and generic subscription lifecycle fields are portable across **all** processors, including `all_time_revenue`, `revenue_in_period`, `ttm_revenue`, `revenue_run_rate`, customer counts, subscriber counts, and churn calculations — `pay` stores real amounts and lifecycle dates locally for every processor.
 
 ## Mount the `/profitable` dashboard
 
@@ -71,6 +66,7 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 ### Revenue metrics
 
 - `Profitable.mrr`: Monthly Recurring Revenue (MRR) from subscriptions that are billable right now
+- `Profitable.mrr_at(date)`: Historical MRR snapshot from subscriptions that were billable at the given date
 - `Profitable.arr`: Annual Recurring Revenue (ARR), calculated as current `mrr * 12`, not trailing revenue
 - `Profitable.ttm`: Founder-friendly shorthand alias for `ttm_revenue`
 - `Profitable.ttm_revenue`: Trailing twelve-month revenue, net of refunds when `amount_refunded` is present
@@ -117,6 +113,9 @@ All methods return numbers that can be converted to a nicely-formatted, human-re
 ```ruby
 # Get the current MRR
 Profitable.mrr.to_readable # => "$1,234"
+
+# Get the MRR snapshot for a historical date
+Profitable.mrr_at(30.days.ago).to_readable # => "$987"
 
 # Get the number of new customers in the last 60 days
 Profitable.new_customers(in_the_last: 60.days).to_readable # => "42"
@@ -170,6 +169,8 @@ Revenue methods are net of refunds when `amount_refunded` is present on `pay_cha
 
 ### Notes on specific metrics
 
+- **Canceled trials never count.** A subscription only enters subscriber counts, new/churned MRR, churn rates, and the dashboard summaries if it actually started billing before it ended. A free trial that gets canceled (before or at conversion) adds nothing to any metric — it was never revenue, so it is neither a "new subscriber" nor "churn".
+- `churn` and `churned_customers`: a churn event happens when billing actually stops (`ends_at`), not when the cancellation is requested. A subscription canceled with a grace period keeps counting in MRR and `active_subscribers` until the grace period runs out.
 - `mrr_growth_rate`: This calculation compares the MRR at the start and end of the specified period. It assumes a linear growth rate over the period, which may not reflect short-term fluctuations. For more accurate results, consider using shorter periods or implementing a more sophisticated growth calculation method if needed.
 - `time_to_next_mrr_milestone`: This estimation is based on the current MRR and the recent growth rate. It assumes a constant growth rate, which may not reflect real-world conditions. The calculation may be inaccurate for very new businesses or those with irregular growth patterns.
 

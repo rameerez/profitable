@@ -1,3 +1,6 @@
+require "delegate"
+require "action_view"
+
 module Profitable
   class NumericResult < SimpleDelegator
     include ActionView::Helpers::NumberHelper
