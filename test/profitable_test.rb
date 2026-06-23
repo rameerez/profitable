@@ -58,6 +58,18 @@ class ProfitableTest < Minitest::Test
     assert_equal 4900, Profitable.mrr_at(Time.current).to_i
   end
 
+  def test_mrr_at_respects_pause_state_at_snapshot_date
+    subscription = create_stripe_subscription_v10(
+      customer: @customer,
+      unit_amount: 9900,
+      interval: "month"
+    )
+    subscription.update!(created_at: 60.days.ago, pause_starts_at: 30.days.ago)
+
+    assert_equal 9900, Profitable.mrr_at(45.days.ago).to_i
+    assert_equal 0, Profitable.mrr_at(15.days.ago).to_i
+  end
+
   def test_mrr_excludes_subscriptions_still_on_trial_even_if_status_is_active
     subscription = create_stripe_subscription_v10(
       customer: @customer,

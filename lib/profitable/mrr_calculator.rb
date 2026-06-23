@@ -11,6 +11,8 @@ module Profitable
     # current MRR, MRR-at-date, and growth rates can never drift apart.
     def self.calculate
       Profitable.mrr_at(Time.current).to_i
+    rescue Profitable::Error
+      raise
     rescue => e
       Rails.logger.error("Error calculating total MRR: #{e.message}")
       raise Profitable::Error, "Failed to calculate MRR: #{e.message}"

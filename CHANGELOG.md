@@ -1,6 +1,6 @@
 # `profitable`
 
-## [0.6.0] - 2026-06-20
+## [0.6.0] - 2026-06-23
 
 Accuracy-focused release: every metric was re-audited line by line against the actual data `pay` (7.x–11.x) stores.
 
@@ -14,6 +14,7 @@ Accuracy-focused release: every metric was re-audited line by line against the a
 - **Fix paused subscriptions disappearing from lifecycle metrics**: paused subscriptions without a local pause start date remain excluded from current MRR, but still count as customers/subscribers if they had already become billable
 - **Fix two small edge cases**: sub-dollar positive MRR no longer reports as "No MRR yet" for milestone messaging, and monthly churn denominators now match the inclusive period-start semantics used by `churn`
 - Add `Profitable.mrr_at(date)` as the public historical MRR snapshot API, keeping the raw `calculate_mrr_at` helper private
+- Preserve existing `Profitable::Error` messages in MRR snapshot delegation instead of double-wrapping them
 - **Correct the processor coverage docs**: `pay` only stores subscription price payloads locally for Stripe, so Braintree/Paddle subscriptions contribute 0 to MRR-style metrics unless the payload is backfilled — the README previously overstated this; charge-based and lifecycle-based metrics remain fully portable across all processors
 - DRY consolidation: MRR "billable right now" and "billable at date" are now literally the same query (`MrrCalculator.calculate` delegates to the shared snapshot), churn-event queries are defined once and reused by all metrics and summaries, and `subscription_data` has a single source of truth
 - `MrrCalculator.calculate` streams subscriptions in batches (`find_each`) everywhere, keeping memory flat on large datasets

@@ -197,7 +197,8 @@ module Profitable
     # end date on ended Stripe subscriptions (ends_at == trial_ends_at), and Paddle
     # leaves a stale future trial_ends_at (ends_at < trial_ends_at). The strict
     # `>` is intentional: equality means the subscription never had a billable
-    # interval for metric purposes, even if those timestamps share a second.
+    # interval for metric purposes, even if those timestamps share a second
+    # (for example, ends_at == trial_ends_at on an immediately canceled trial).
     # This single predicate keeps never-converted trials out of subscriber counts,
     # new/churned MRR, churn rates, and the dashboard summaries.
     def subscription_was_billable_before_ending_sql

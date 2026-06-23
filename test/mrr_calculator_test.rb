@@ -417,6 +417,14 @@ class MrrCalculatorTest < Minitest::Test
     assert_includes error.message, "database exploded"
   end
 
+  def test_calculate_reraises_profitable_errors_without_double_wrapping
+    Profitable.stubs(:mrr_at).raises(Profitable::Error.new("already wrapped"))
+
+    error = assert_raises(Profitable::Error) { Profitable::MrrCalculator.calculate }
+
+    assert_equal "already wrapped", error.message
+  end
+
   def test_calculate_matches_the_mrr_at_snapshot_for_now
     create_stripe_subscription_v10(
       customer: @stripe_customer,
